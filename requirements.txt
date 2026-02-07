@@ -1,0 +1,6 @@
+streamlit
+streamlit-drawable-canvas
+docxtpl
+pandas
+Pillow
+streamlit-autorefresh
