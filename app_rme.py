@@ -7,15 +7,17 @@ import sqlite3, os, json, pandas as pd
 from datetime import datetime
 from PIL import Image
 from streamlit_autorefresh import st_autorefresh
-import streamlit as st
 from supabase import create_client
 
-url = st.secrets["https://eunioeotukvyqraewvir.supabase.co"]
-key = st.secrets["sb_publishable_R12iIQ2Y2PqAqcv3quN8bA_4ctQG_yb"]
+# =========================================================
+# 1. CORE CONFIG & SUPABASE
+# =========================================================
+# PERBAIKAN: Menggunakan label secrets yang benar
+# Cukup tulis begini, JANGAN masukin link-nya di sini
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
-# =========================================================
-# 1. CORE CONFIG & THEME
-# =========================================================
+
 st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
 
 # Folder Setup
@@ -143,7 +145,6 @@ if menu == "📊 Monitor Antrian":
     st_autorefresh(5000, key="mon_ref")
     st.header("Real-time Monitor Antrian")
     db = init_db()
-    # Menampilkan Jam Masuk dengan detik
     df = pd.read_sql_query("""
         SELECT waktu_input as 'Jam Masuk', pemohon as 'User', 
         pasien_display as 'Pasien', status as 'Status' 
@@ -196,7 +197,6 @@ elif menu == "📝 Input Form":
         st.success("✅ Data Pasien Lengkap")
         canvas = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key="can_u")
         if st.button("🚀 KIRIM KE IT", type="primary"):
-            # SEMUA BARIS DI BAWAH INI HARUS MENJOROK KE DALAM (1 TAB / 4 SPASI)
              if canvas.image_data is not None and not (canvas.image_data[:, :, 3] == 0).all():
                 path_ttd = f"temp/ttd_u_{datetime.now().strftime('%H%M%S')}.png"
                 Image.fromarray(canvas.image_data.astype('uint8')).save(path_ttd)
@@ -224,8 +224,9 @@ elif menu == "📝 Input Form":
                 st.session_state.clear()
                 st.success(f"Terkirim sebagai: {fname}")
                 st.rerun()
+
 # =========================================================
-# 6. MENU 3: WORKSPACE IT (KHUSUS IT)
+# 6. MENU 3: WORKSPACE IT
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
     st.header("👨‍💻 IT Workspace & Dashboard")
@@ -240,41 +241,35 @@ elif menu == "👨‍💻 Workspace IT":
             p_json = json.loads(t[2])
             for p in p_json: st.code(f"RM: {p['rm']} | {p['nama']}")
             if t[3] == "Masuk Antrian":
-                if st.button(f"Ambil Kerja {t[0]}"):
+                if st.button(f"Ambil Kerja {t[0]}", key=f"take_{t[0]}"):
                     db.execute("UPDATE rme_tasks SET status='Proses Antrian', it_executor=? WHERE id=?", (it_nama, t[0]))
                     db.commit(); st.rerun()
             else:
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
-                if st.button(f"Selesaikan {t[0]}", type="primary"):
-                    if st.button("Kirim Pengajuan"):
-    # --- BAGIAN 1: SIMPAN KE SUPABASE (PENAMBAHAN) ---
-    data_pasien = {
-        "nama_pasien": nama_input,
-        "no_rm": rm_input,
-        "alasan": alasan_input,
-        "status": "Pending"
-    }
-    
-    try:
-        # Kirim data ke awan
-        supabase.table("arsip_rme").insert(data_pasien).execute()
-        st.success("Data sudah masuk Database!")
-                    # MENCATAT WAKTU SELESAI DETAIL
-                    jam_done_detail = datetime.now().strftime("%H:%M:%S")
-                    tgl_indo_full = get_tgl_indo()
+                if st.button(f"Selesaikan {t[0]}", type="primary", key=f"done_{t[0]}"):
                     
-                    path_it = f"temp/ttd_it_{t[0]}.png"
-                    Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
+                    # --- PERBAIKAN: LOGIKA SUPABASE DIMASUKKAN KE SINI ---
                     try:
+                        # 1. Simpan ke Supabase (Cloud Permanen)
+                        data_supabase = {
+                            "nama_pasien": t[14],
+                            "no_rm": t[13],
+                            "alasan": p_json[0]['alasan'],
+                            "status": "Selesai"
+                        }
+                        supabase.table("arsip_rme").insert(data_supabase).execute()
+                        st.info("☁️ Data di-backup ke Cloud")
+
+                        # 2. Lanjut Logika Bikin Word & Simpan Lokal
+                        jam_done_detail = datetime.now().strftime("%H:%M:%S")
+                        tgl_indo_full = get_tgl_indo()
+                        path_it = f"temp/ttd_it_{t[0]}.png"
+                        Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
+                        
                         doc = DocxTemplate("template_rme.docx")
-                        # CTX HANYA DATA PENTING UNTUK SURAT (TANPA JAM AGAR RAPI)
                         ctx = {
-                            'tgl_full': tgl_indo_full,
-                            'unit': t[1], 
-                            'pemohon': t[7], 
-                            'nip_user': t[8],
-                            'penerima': it_nama, 
-                            'nip_it': it_nip,
+                            'tgl_full': tgl_indo_full, 'unit': t[1], 'pemohon': t[7], 'nip_user': t[8],
+                            'penerima': it_nama, 'nip_it': it_nip,
                             'ttd_user': InlineImage(doc, t[11], width=Inches(1.2)), 
                             'ttd_it': InlineImage(doc, path_it, width=Inches(1.2))
                         }
@@ -290,10 +285,9 @@ elif menu == "👨‍💻 Workspace IT":
                         
                         db.execute("UPDATE rme_tasks SET status='Selesai', it_executor=?, waktu_selesai=? WHERE id=?", (it_nama, jam_done_detail, t[0]))
                         db.commit()
-                        if os.path.exists(t[11]): os.remove(t[11])
-                        if os.path.exists(path_it): os.remove(path_it)
                         st.rerun()
-                    except Exception as e: st.error(e)
+                    except Exception as e:
+                        st.error(f"Gagal simpan: {e}")
 
     st.divider()
     df_perf = pd.read_sql_query("SELECT it_executor as Petugas, count(*) as Total FROM rme_tasks WHERE status='Selesai' GROUP BY it_executor", db)
@@ -301,7 +295,7 @@ elif menu == "👨‍💻 Workspace IT":
     db.close()
 
 # =========================================================
-# 7. MENU 4: ARSIP DIGITAL
+# 7. MENU 4: ARSIP DIGITAL (LENGKAP DENGAN SEARCH)
 # =========================================================
 else:
     st.header("📂 Pusat Arsip Digital")
@@ -314,14 +308,10 @@ else:
     for _, r in arsip.iterrows():
         with st.container(border=True):
             ca, cb, cc = st.columns([3, 2, 1])
-            # DETAIL JAM MUNCUL DI DASHBOARD ARSIP
             ca.write(f"**{r['pasien_display']}**")
             ca.caption(f"🕒 Masuk: {r['waktu_input']} | ✅ Selesai: {r['waktu_selesai']}")
-            
             cb.write(f"Petugas: {r['it_executor']}")
             if os.path.exists(f"arsip_rme/{r['file_name']}"):
                 with open(f"arsip_rme/{r['file_name']}", "rb") as f:
                     cc.download_button("💾 Download", f, file_name=r['file_name'], key=f"ars_{r['id']}")
-
     db.close()
-
