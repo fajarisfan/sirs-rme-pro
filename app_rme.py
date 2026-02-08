@@ -7,7 +7,12 @@ import sqlite3, os, json, pandas as pd
 from datetime import datetime
 from PIL import Image
 from streamlit_autorefresh import st_autorefresh
+import streamlit as st
+from supabase import create_client
 
+url = st.secrets["https://eunioeotukvyqraewvir.supabase.co"]
+key = st.secrets["sb_publishable_R12iIQ2Y2PqAqcv3quN8bA_4ctQG_yb"]
+supabase = create_client(url, key)
 # =========================================================
 # 1. CORE CONFIG & THEME
 # =========================================================
@@ -304,4 +309,5 @@ else:
             if os.path.exists(f"arsip_rme/{r['file_name']}"):
                 with open(f"arsip_rme/{r['file_name']}", "rb") as f:
                     cc.download_button("💾 Download", f, file_name=r['file_name'], key=f"ars_{r['id']}")
+
     db.close()
