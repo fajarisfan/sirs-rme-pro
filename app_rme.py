@@ -246,6 +246,19 @@ elif menu == "👨‍💻 Workspace IT":
             else:
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
                 if st.button(f"Selesaikan {t[0]}", type="primary"):
+                    if st.button("Kirim Pengajuan"):
+    # --- BAGIAN 1: SIMPAN KE SUPABASE (PENAMBAHAN) ---
+    data_pasien = {
+        "nama_pasien": nama_input,
+        "no_rm": rm_input,
+        "alasan": alasan_input,
+        "status": "Pending"
+    }
+    
+    try:
+        # Kirim data ke awan
+        supabase.table("arsip_rme").insert(data_pasien).execute()
+        st.success("Data sudah masuk Database!")
                     # MENCATAT WAKTU SELESAI DETAIL
                     jam_done_detail = datetime.now().strftime("%H:%M:%S")
                     tgl_indo_full = get_tgl_indo()
@@ -311,3 +324,4 @@ else:
                     cc.download_button("💾 Download", f, file_name=r['file_name'], key=f"ars_{r['id']}")
 
     db.close()
+
