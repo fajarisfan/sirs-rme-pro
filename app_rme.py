@@ -157,7 +157,7 @@ if menu == "📊 Monitor Antrian":
 # 5. MENU 2: INPUT FORM
 # =========================================================
 elif menu == "📝 Input Form":
-    st.header("📝 Form Pengajuan RME")
+    st.header("📝 Form Penghapusan RME")
     if 'step' not in st.session_state: st.session_state.step = 1
     if 'data_p' not in st.session_state: st.session_state.data_p = []
 
