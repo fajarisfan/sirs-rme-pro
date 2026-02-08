@@ -80,7 +80,23 @@ def play_notif_sound():
 # =========================================================
 with st.sidebar:
     st.title("🏥 SIRS RME PRO")
-    
+    with st.expander("⚠️ Zona Bahaya"):
+        if st.button("KOSONGKAN SEMUA DATA"):
+            # 1. Kosongkan SQLite Lokal (Menghapus Markus & Roni dari tabel)
+            with init_db() as conn:
+                conn.execute("DELETE FROM rme_tasks")
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='rme_tasks'") # Reset ID ke 1
+                conn.commit()
+            
+            # 2. Kosongkan Supabase (Cloud)
+            try:
+                supabase.table("arsip_rme").delete().neq("status", "lalala").execute()
+            except:
+                pass
+                
+            st.success("Database Bersih! Silakan Refresh.")
+            st.rerun()
+            
     html_jam = """
     <div style="background-color: #0e1117; padding: 10px; border-radius: 10px; border: 1px solid #00ff00; text-align: center;">
         <span id="clock" style="color: #00ff00; font-family: monospace; font-size: 28px; font-weight: bold;">00:00:00</span>
@@ -315,3 +331,4 @@ else:
                 with open(f"arsip_rme/{r['file_name']}", "rb") as f:
                     cc.download_button("💾 Download", f, file_name=r['file_name'], key=f"ars_{r['id']}")
     db.close()
+
