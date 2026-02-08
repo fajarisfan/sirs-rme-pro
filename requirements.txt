@@ -3,4 +3,5 @@ streamlit-drawable-canvas
 docxtpl
 pandas
 Pillow
+supabase
 streamlit-autorefresh
