@@ -52,9 +52,13 @@ def update_jadwal_dari_pdf(file_pdf):
         with pdfplumber.open(file_pdf) as pdf:
             table = pdf.pages[0].extract_table()
             mapping_nama = {
-                "Teguh Adi Pradana": "Teguh", "Jaka Gilang R": "Jaka",
-                "Ahmad Haerudin": "Udin", "Isfan Fajar Anugrah": "Isfan",
-                "M. Hisyam Rizky": "Hisyam", "Ferdyansyah Zaelani": "Ferdi", "Reynold": "Rey"
+                "Teguh Adi Pradana": "Teguh",
+                "Jaka Gilang R": "Jaka",
+                "Ahmad Haerudin": "Udin",    # FIX: Udin adalah Ahmad Haerudin
+                "Isfan Fajar Anugrah": "Isfan",
+                "M. Hisyam Rizky": "Hisyam",
+                "Ferdyansyah Zaelani": "Ferdi",
+                "Reynold": "Rey"
             }
             data_jadwal = []
             for row in table:
@@ -75,7 +79,6 @@ def update_jadwal_dari_pdf(file_pdf):
     except Exception as e:
         st.error(f"Error baca PDF: {e}")
     return False
-    
 def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
@@ -90,34 +93,32 @@ def get_it_aktif_sekarang():
     if df_hari_ini.empty: return ["⚠️ Upload PDF Jadwal Dulu!"]
 
     for _, row in df_hari_ini.iterrows():
-        nama, s = row['nama'], row['shift']
+        nama, s = row['nama'], str(row['shift']).upper().strip()
         
-        # 1. SHIFT PAGI (P) - Jaka & Isfan Pulang Jam 14:00 (Jam 2 Siang)
-        if s == "P" and 7 <= jam_ini < 14:
-            petugas_on.append(nama)
+        # JANGAN MUNCULIN KALO LIBUR/KOSONG
+        if s in ["L", "OFF", "", "/L", "LL"]:
+            continue
+
+        # 1. NON-SHIFT / PS (Jaka, Isfan, Rey, Ferdi)
+        # Sesuai jadwal, jam 4 sore udah gak standby di aplikasi
+        if "PS" in s or s == "P":
+            if 7 <= jam_ini < 16:
+                petugas_on.append(f"{nama} (Non-Shift)")
             
-        # 2. SHIFT SIANG (S) - Teguh Jam 21:00, Hisyam Jam 22:00
+        # 2. SHIFT SIANG (S)
         elif s == "S":
+            # Hisyam balik jam 10 malem
             if nama == "Hisyam" and 14 <= jam_ini < 22:
-                petugas_on.append(nama)
-            elif 14 <= jam_ini < 21: # Teguh dkk
-                petugas_on.append(nama)
+                petugas_on.append(f"{nama} (Siang)")
+            # Teguh dkk balik jam 9 malem
+            elif 14 <= jam_ini < 21:
+                petugas_on.append(f"{nama} (Siang)")
                 
-        # 3. SHIFT MALAM (M / MM) - Jam 21:00 sampe 07:00
-        elif (s == "M" or s == "MM") and (jam_ini >= 21 or jam_ini < 7):
-            petugas_on.append(nama)
-            
-        # 4. SHIFT PS / LPS (ADMIN) - Rey & Ferdi Pulang Jam 16:00 (Jam 4 Sore)
-        elif s in ["PS", "LPS"]:
-            # Kalau Rey atau Ferdi shift PS, jam 4 sore (16:00) harus ILANG
-            if nama in ["Rey", "Ferdi", "Isfan", "Jaka"] and 7 <= jam_ini < 16:
-                petugas_on.append(nama)
-            # Hisyam kalau PS tetep ikut aturan lembur dia (opsional, sesuaikan)
-            elif nama == "Hisyam" and 7 <= jam_ini < 22:
-                petugas_on.append(nama)
-            # Default PS lainnya (Teguh dkk) jam 4 sore juga
-            elif 7 <= jam_ini < 16:
-                petugas_on.append(nama)
+        # 3. SHIFT MALAM (M / MM)
+        # Udin (Ahmad Haerudin) baru muncul jam 9 malem
+        elif "M" in s:
+            if jam_ini >= 21 or jam_ini < 7:
+                petugas_on.append(f"{nama} (Malam)")
     
     petugas_on = sorted(list(set(petugas_on)))
     return petugas_on if petugas_on else ["Tidak ada petugas standby"]
@@ -298,6 +299,7 @@ elif menu == "📊 Dashboard Jadwal":
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
 
 
