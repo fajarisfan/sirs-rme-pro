@@ -46,7 +46,6 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
     conn.commit()
     return conn
-
 def update_jadwal_dari_pdf(file_pdf):
     try:
         with pdfplumber.open(file_pdf) as pdf:
@@ -54,7 +53,7 @@ def update_jadwal_dari_pdf(file_pdf):
             mapping_nama = {
                 "Teguh Adi Pradana": "Teguh",
                 "Jaka Gilang R": "Jaka",
-                "Ahmad Haerudin": "Udin",    # FIX: Udin adalah Ahmad Haerudin
+                "Ahmad Haerudin": "Udin", 
                 "Isfan Fajar Anugrah": "Isfan",
                 "M. Hisyam Rizky": "Hisyam",
                 "Ferdyansyah Zaelani": "Ferdi",
@@ -62,23 +61,29 @@ def update_jadwal_dari_pdf(file_pdf):
             }
             data_jadwal = []
             for row in table:
-                nama_full = row[1] if row[1] else ""
+                if not row[1]: continue
+                nama_full = str(row[1]).replace('\n', ' ')
                 for key_pdf, nama_singkat in mapping_nama.items():
-                    if key_pdf in nama_full:
+                    if key_pdf.lower() in nama_full.lower():
+                        # Ambil semua tanggal (1-28/31)
                         for tgl in range(1, 32):
-                            if tgl+1 < len(row) and row[tgl+1]:
-                                shift = row[tgl+1].replace('\n', '').strip()
+                            col_idx = tgl + 1 # Penyesuaian kolom di PDF
+                            if col_idx < len(row) and row[col_idx]:
+                                shift = str(row[col_idx]).replace('\n', '').strip().upper()
                                 data_jadwal.append({"nama": nama_singkat, "tanggal": tgl, "shift": shift})
             
             if data_jadwal:
-                df_hasil = pd.DataFrame(data_jadwal)
                 db = init_db()
-                df_hasil.to_sql('jadwal_it', db, if_exists='replace', index=False)
+                db.execute("DELETE FROM jadwal_it") 
+                pd.DataFrame(data_jadwal).to_sql('jadwal_it', db, if_exists='append', index=False)
+                db.commit()
                 db.close()
                 return True
     except Exception as e:
-        st.error(f"Error baca PDF: {e}")
+        st.error(f"Error: {e}")
     return False
+    
+def get_it_aktif_sekarang():
 def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
@@ -93,32 +98,34 @@ def get_it_aktif_sekarang():
     if df_hari_ini.empty: return ["⚠️ Upload PDF Jadwal Dulu!"]
 
     for _, row in df_hari_ini.iterrows():
-        nama, s = row['nama'], str(row['shift']).upper().strip()
+        nama, s = row['nama'], str(row['shift']).upper()
         
-        # JANGAN MUNCULIN KALO LIBUR/KOSONG
-        if s in ["L", "OFF", "", "/L", "LL"]:
+        # 1. Kalo jadwalnya Libur/Lepas, JANGAN MUNCUL
+        if any(x in s for x in ["L", "OFF", "LL", "/L"]) or s == "":
             continue
 
-        # 1. NON-SHIFT / PS (Jaka, Isfan, Rey, Ferdi)
-        # Sesuai jadwal, jam 4 sore udah gak standby di aplikasi
-        if "PS" in s or s == "P":
+        # 2. Logika Shift PAGI / PS / LPS (Pagi-Sore)
+        # Aktif jam 7 pagi sampai 4 sore (16:00)
+        if "P" in s or "PS" in s:
             if 7 <= jam_ini < 16:
-                petugas_on.append(f"{nama} (Non-Shift)")
-            
-        # 2. SHIFT SIANG (S)
-        elif s == "S":
-            # Hisyam balik jam 10 malem
-            if nama == "Hisyam" and 14 <= jam_ini < 22:
-                petugas_on.append(f"{nama} (Siang)")
-            # Teguh dkk balik jam 9 malem
-            elif 14 <= jam_ini < 21:
-                petugas_on.append(f"{nama} (Siang)")
-                
-        # 3. SHIFT MALAM (M / MM)
-        # Udin (Ahmad Haerudin) baru muncul jam 9 malem
+                petugas_on.append(f"{nama} ({s})")
+
+        # 3. Logika Shift SIANG (S)
+        elif "S" in s:
+            # Hisyam khusus sampai jam 10 malem
+            if nama == "Hisyam":
+                if 14 <= jam_ini < 22:
+                    petugas_on.append(f"{nama} ({s})")
+            # Teguh dkk sampai jam 9 malem
+            else:
+                if 14 <= jam_ini < 21:
+                    petugas_on.append(f"{nama} ({s})")
+
+        # 4. Logika Shift MALAM (M / MM)
+        # Muncul jam 9 malem sampai jam 7 pagi besoknya
         elif "M" in s:
             if jam_ini >= 21 or jam_ini < 7:
-                petugas_on.append(f"{nama} (Malam)")
+                petugas_on.append(f"{nama} ({s})")
     
     petugas_on = sorted(list(set(petugas_on)))
     return petugas_on if petugas_on else ["Tidak ada petugas standby"]
@@ -299,6 +306,7 @@ elif menu == "📊 Dashboard Jadwal":
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
 
 
