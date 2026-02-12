@@ -75,7 +75,6 @@ def update_jadwal_dari_pdf(file_pdf):
     except Exception as e:
         st.error(f"Error baca PDF: {e}")
     return False
-
 def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
@@ -91,16 +90,33 @@ def get_it_aktif_sekarang():
 
     for _, row in df_hari_ini.iterrows():
         nama, s = row['nama'], row['shift']
-        if s == "P" and 7 <= jam_ini < 14: petugas_on.append(nama)
-        elif s == "S" and 14 <= jam_ini < 21: petugas_on.append(nama)
-        elif (s == "M" or s == "MM") and (jam_ini >= 21 or jam_ini < 7): petugas_on.append(nama)
+        
+        # 1. LOGIKA SHIFT PAGI (P) - Jam 7 sampe jam 2 siang
+        if s == "P" and 7 <= jam_ini < 14:
+            petugas_on.append(nama)
+            
+        # 2. LOGIKA SHIFT SIANG (S) 
+        elif s == "S":
+            if nama == "Hisyam" and 14 <= jam_ini < 22: # Hisyam jam 10 malem
+                petugas_on.append(nama)
+            elif 14 <= jam_ini < 21: # Selain Hisyam jam 9 malem (termasuk Teguh)
+                petugas_on.append(nama)
+                
+        # 3. LOGIKA SHIFT MALAM (M / MM) - Jam 9 malem sampe jam 7 pagi
+        elif (s == "M" or s == "MM") and (jam_ini >= 21 or jam_ini < 7):
+            petugas_on.append(nama)
+            
+        # 4. LOGIKA SHIFT PS / LPS (ADMIN)
         elif s in ["PS", "LPS"]:
-            if nama in ["Rey", "Ferdi"] and 8 <= jam_ini < 16: petugas_on.append(nama)
-            elif nama == "Hisyam" and 12 <= jam_ini < 20: petugas_on.append(nama)
-            elif 8 <= jam_ini < 16: petugas_on.append(nama)
+            if nama == "Hisyam" and 7 <= jam_ini < 22: # Hisyam PS sampe jam 10 malem
+                petugas_on.append(nama)
+            elif 7 <= jam_ini < 21: # Selain Hisyam (Teguh dkk) jam 9 malem
+                petugas_on.append(nama)
+    
+    # Bersihin nama yang ganda & urutin biar rapi
+    petugas_on = sorted(list(set(petugas_on)))
     
     return petugas_on if petugas_on else ["Tidak ada petugas standby"]
-
 # =========================================================
 # 3. SIDEBAR NAVIGATION
 # =========================================================
@@ -278,3 +294,4 @@ elif menu == "📊 Dashboard Jadwal":
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
