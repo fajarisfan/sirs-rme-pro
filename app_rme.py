@@ -54,7 +54,7 @@ def update_jadwal_dari_pdf(file_pdf):
             mapping_nama = {
                 "Teguh Adi Pradana": "Teguh", "Jaka Gilang R": "Jaka",
                 "Ahmad Haerudin": "Udin", "Isfan Fajar Anugrah": "Isfan",
-                "M. Hisyam Rizky": "Hisyam", "Ferdy Apriadi": "Ferdi", "Reynold": "Rey"
+                "M. Hisyam Rizky": "Hisyam", "Ferdyansyah Zaelani": "Ferdi", "Reynold": "Rey"
             }
             data_jadwal = []
             for row in table:
@@ -294,4 +294,5 @@ elif menu == "📊 Dashboard Jadwal":
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
