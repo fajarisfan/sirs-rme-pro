@@ -306,22 +306,50 @@ elif menu == "📁 Arsip Digital":
 # =========================================================
 elif menu == "📊 Dashboard Jadwal":
     st.header("📊 Dashboard Jadwal IT")
+    
     with st.container(border=True):
         pdf_file = st.file_uploader("Upload PDF Jadwal Baru", type="pdf")
-        if st.button("🚀 Proses Update"):
-    if pdf_file is not None:
-        hasil = update_jadwal_dari_pdf(pdf_file) # Panggil fungsinya
-        if hasil: # Jika True
-            st.success("✅ Jadwal Berhasil Diupdate!")
-            st.balloons()
-            st.rerun() # Paksa refresh data
-        else:
-            st.error("❌ Gagal Update. Cek fungsi return lu.")
+        if st.button("🚀 Proses Update Sekarang"):
+            if pdf_file is not None:
+                with st.spinner('Sedang memproses jadwal...'):
+                    hasil = update_jadwal_dari_pdf(pdf_file)
+                
+                if hasil:
+                    st.success("✅ Jadwal Berhasil Diupdate!")
+                    st.balloons()
+                    # Jeda dikit biar lu sempet liat notifnya
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Gagal Update. Cek fungsi update_jadwal_dari_pdf lu.")
             else:
-                st.warning("Pilih file PDF jadwal dulu)
-    except:
-        st.error("Gagal load pratinjau.")
-    db.close()
+                # FIX: Tanda kutip sudah ditutup sekarang
+                st.warning("⚠️ Pilih file PDF jadwal dulu!")
+
+    st.divider()
+    st.subheader("📅 Preview Database Jadwal")
+    
+    # Bagian nampilin tabel preview
+    try:
+        db = init_db()
+        df_view = pd.read_sql_query("SELECT * FROM jadwal_it ORDER BY tanggal ASC", db)
+        db.close()
+        
+        if not df_view.empty:
+            tgl_skrg = datetime.now().day
+            cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
+            
+            # Filter data sesuai tanggal slider
+            df_filtered = df_view[df_view['tanggal'] == cek_tgl]
+            if not df_filtered.empty:
+                st.table(df_filtered)
+            else:
+                st.info(f"Tidak ada jadwal untuk tanggal {cek_tgl}")
+        else:
+            st.warning("Database Jadwal Kosong.")
+    except Exception as e:
+        st.error(f"Gagal load pratinjau: {e}")
 
 
 
