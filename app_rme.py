@@ -74,6 +74,8 @@ def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
     db = init_db()
+    
+    # Ambil data dari tabel jadwal
     try:
         df_hari_ini = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal={tgl_ini}", db)
     except:
@@ -81,32 +83,26 @@ def get_it_aktif_sekarang():
     db.close()
     
     petugas_on = []
-    # Jika database kosong, jangan return semua (biar ketauan kalau PDF belum diproses)
-    if df_hari_ini.empty: 
-        return ["Upload PDF Dulu!"] 
-    
+
+    # --- PERUBAHAN DI SINI ---
+    # Kalau database kosong (abis refresh), jangan nampilin LIST_IT mentah
+    if df_hari_ini.empty:
+        return ["Silahkan Upload PDF Jadwal di Sidebar"] 
+    # -------------------------
+
     for _, row in df_hari_ini.iterrows():
         nama, s = row['nama'], row['shift']
         
-        # 1. Logika NON-SHIFT (Pagi-Sore)
+        # Logika jam yang ketat
         if s in ["PS", "LPS"]:
-            if 7 <= jam_ini < 16:
-                petugas_on.append(nama)
-        
-        # 2. Logika Shift PAGI (P)
+            if 7 <= jam_ini < 16: petugas_on.append(nama)
         elif s == "P" and 7 <= jam_ini < 14:
             petugas_on.append(nama)
-            
-        # 3. Logika Shift SIANG (S)
         elif s == "S" and 14 <= jam_ini < 21:
             petugas_on.append(nama)
+        elif (s == "M" or s == "MM") and (jam_ini >= 21 or jam_ini < 7):
+            petugas_on.append(nama)
             
-        # 4. Logika Shift MALEM (M atau MM)
-        elif (s == "M" or s == "MM"):
-            # Udin dkk cuma muncul jam 9 malem sampe 7 pagi
-            if jam_ini >= 21 or jam_ini < 7:
-                petugas_on.append(nama)
-                
     return petugas_on
 
 # =========================================================
@@ -282,4 +278,5 @@ elif menu == "📁 Arsip Digital":
                 with open(f"arsip_rme/{r['file_name']}", "rb") as f:
                     c3.download_button("📥 Word", f, file_name=r['file_name'], key=f"dl_{r['id']}")
     db.close()
+
 
