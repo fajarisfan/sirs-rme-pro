@@ -49,13 +49,14 @@ def init_db():
 def update_jadwal_dari_pdf(file_pdf):
     try:
         import pdfplumber
+        import sqlite3
+        
         with pdfplumber.open(file_pdf) as pdf:
             table = pdf.pages[0].extract_table()
-            # MAPPING HARUS SESUAI NAMA DI PDF 
             mapping_nama = {
                 "Teguh Adi Pradana": "Teguh",
                 "Jaka Gilang R": "Jaka",
-                "Ahmad Haerudin": "Udin",    # Udin = Ahmad Haerudin 
+                "Ahmad Haerudin": "Udin", 
                 "Isfan Fajar Anugrah": "Isfan",
                 "M. Hisyam Rizky": "Hisyam",
                 "Ferdyansyah Zaelani": "Ferdi",
@@ -69,7 +70,7 @@ def update_jadwal_dari_pdf(file_pdf):
                 
                 for key_pdf, nama_singkat in mapping_nama.items():
                     if key_pdf.lower() in nama_full.lower():
-                        # Loop tanggal Februari 1-28 
+                        # Ambil tanggal 1-28 (Februari)
                         for tgl in range(1, 29):
                             col_idx = tgl + 1
                             if col_idx < len(row) and row[col_idx]:
@@ -81,75 +82,58 @@ def update_jadwal_dari_pdf(file_pdf):
                                 })
             
             if data_jadwal:
-                db = init_db()
-                # 1. BERSIHKAN DATA LAMA
-                db.execute("DELETE FROM jadwal_it")
-                
-                # 2. INPUT DATA BARU
-                df_hasil = pd.DataFrame(data_jadwal)
-                df_hasil.to_sql('jadwal_it', db, if_exists='append', index=False)
-                
-                # 3. KUNCI DATA (INI YANG PALING PENTING)
-                db.commit() 
-                
-                # 4. TUTUP KONEKSI
-                db.close()
-                return True # Balikin True biar notif sukses muncul
+                # PAKAI KONEKSI LANGSUNG BIAR GAK LOCK
+                conn = sqlite3.connect('database_it.db') # Sesuaikan nama file db lu
+                df_baru = pd.DataFrame(data_jadwal)
+                # REPLACE biar data lama beneran ilang total
+                df_baru.to_sql('jadwal_it', conn, if_exists='replace', index=False)
+                conn.commit()
+                conn.close()
+                return True
     except Exception as e:
-        print(f"Error: {e}")
+        st.error(f"Gagal Simpan: {e}")
     return False
     
 def get_it_aktif_sekarang():
-    from datetime import datetime
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
     
-    db = init_db()
+    # Koneksi manual biar seger datanya
+    import sqlite3
+    conn = sqlite3.connect('database_it.db')
     try:
-        # Ambil jadwal tim sesuai tanggal hari ini saja
-        df_hari_ini = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal={tgl_ini}", db)
+        df_hari_ini = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal={tgl_ini}", conn)
     except:
         df_hari_ini = pd.DataFrame()
-    db.close()
+    conn.close()
     
     petugas_on = []
-    if df_hari_ini.empty: return ["⚠️ Upload PDF Jadwal Dulu!"]
+    if df_hari_ini.empty: return ["⚠️ Database Kosong"]
 
     for _, row in df_hari_ini.iterrows():
         nama, s = row['nama'], str(row['shift']).upper().strip()
         
-        # 1. KALO KODE L (LIBUR) ATAU KOSONG, JANGAN MUNCULIN
-        if s in ["L", "OFF", "LL", "/L", ""] or s is None:
-            continue
+        # Kalo Libur, lewati
+        if s in ["L", "/L", "LL", "OFF", ""]: continue
 
-        # 2. SHIFT PAGI (P) & PS (PAGI SIANG)
-        # Sesuai PDF: Pulang jam 14.00 (P) atau 16.00 (PS).
-        # Kita ambil batas aman jam 16.00 (4 sore) harus ilang.
-        if s == "P" or "PS" in s:
+        # LOGIKA JAM (Tanggal 12 jam 22.30 WIB)
+        # 1. Non-Shift (P/PS) - Pulang jam 16
+        if "P" in s or "PS" in s:
             if 7 <= jam_ini < 16:
                 petugas_on.append(f"{nama} ({s})")
-
-        # 3. SHIFT SIANG (S)
+        
+        # 2. Siang (S) - Hisyam ampe jam 22, Teguh jam 21
         elif s == "S":
-            # Hisyam (Siang) pulang jam 22.00
-            if nama == "Hisyam":
-                if 13 <= jam_ini < 22:
-                    petugas_on.append(f"{nama} ({s})")
-            # Teguh dkk (Siang) pulang jam 21.00
-            else:
-                if 14 <= jam_ini < 21:
-                    petugas_on.append(f"{nama} ({s})")
+            limit = 22 if nama == "Hisyam" else 21
+            if 14 <= jam_ini < limit:
+                petugas_on.append(f"{nama} ({s})")
 
-        # 4. SHIFT MALAM (M / MM)
-        # Baru muncul jam 21.00 (9 malem) sampai jam 07.00 pagi
+        # 3. Malam (M/MM) - Start jam 21 (INI UDIN)
         elif "M" in s:
             if jam_ini >= 21 or jam_ini < 7:
                 petugas_on.append(f"{nama} ({s})")
-    
-    # Hapus nama ganda dan urutkan
-    petugas_on = sorted(list(set(petugas_on)))
-    
-    return petugas_on if petugas_on else ["Tidak ada petugas standby"]
+                
+    return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
 # =========================================================
 # 3. SIDEBAR NAVIGATION
 # =========================================================
@@ -350,6 +334,7 @@ elif menu == "📊 Dashboard Jadwal":
             st.warning("Database Jadwal Kosong.")
     except Exception as e:
         st.error(f"Gagal load pratinjau: {e}")
+
 
 
 
