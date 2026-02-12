@@ -51,37 +51,53 @@ def update_jadwal_dari_pdf(file_pdf):
         import pdfplumber
         with pdfplumber.open(file_pdf) as pdf:
             table = pdf.pages[0].extract_table()
+            # MAPPING HARUS SESUAI NAMA DI PDF 
             mapping_nama = {
                 "Teguh Adi Pradana": "Teguh",
                 "Jaka Gilang R": "Jaka",
-                "Ahmad Haerudin": "Udin", 
+                "Ahmad Haerudin": "Udin",    # Udin = Ahmad Haerudin 
                 "Isfan Fajar Anugrah": "Isfan",
                 "M. Hisyam Rizky": "Hisyam",
                 "Ferdyansyah Zaelani": "Ferdi",
                 "Reynold": "Rey"
             }
+            
             data_jadwal = []
             for row in table:
                 if not row[1]: continue
                 nama_full = str(row[1]).replace('\n', ' ')
+                
                 for key_pdf, nama_singkat in mapping_nama.items():
                     if key_pdf.lower() in nama_full.lower():
-                        for tgl in range(1, 32):
+                        # Loop tanggal Februari 1-28 
+                        for tgl in range(1, 29):
                             col_idx = tgl + 1
                             if col_idx < len(row) and row[col_idx]:
                                 shift = str(row[col_idx]).replace('\n', '').strip().upper()
-                                data_jadwal.append({"nama": nama_singkat, "tanggal": tgl, "shift": shift})
+                                data_jadwal.append({
+                                    "nama": nama_singkat, 
+                                    "tanggal": tgl, 
+                                    "shift": shift
+                                })
             
             if data_jadwal:
                 db = init_db()
-                db.execute("DELETE FROM jadwal_it") # Bersihin data lama
-                pd.DataFrame(data_jadwal).to_sql('jadwal_it', db, if_exists='append', index=False)
-                db.commit() # Simpan permanen
+                # 1. BERSIHKAN DATA LAMA
+                db.execute("DELETE FROM jadwal_it")
+                
+                # 2. INPUT DATA BARU
+                df_hasil = pd.DataFrame(data_jadwal)
+                df_hasil.to_sql('jadwal_it', db, if_exists='append', index=False)
+                
+                # 3. KUNCI DATA (INI YANG PALING PENTING)
+                db.commit() 
+                
+                # 4. TUTUP KONEKSI
                 db.close()
-                return True # <--- INI KUNCI BIAR NOTIF MUNCUL
+                return True # Balikin True biar notif sukses muncul
     except Exception as e:
         print(f"Error: {e}")
-    return False # <--- Kalo gagal balikannya False
+    return False
     
 def get_it_aktif_sekarang():
     from datetime import datetime
@@ -293,26 +309,20 @@ elif menu == "📊 Dashboard Jadwal":
     with st.container(border=True):
         pdf_file = st.file_uploader("Upload PDF Jadwal Baru", type="pdf")
         if st.button("🚀 Proses Update"):
-            if pdf_file is not None:
-                with st.spinner('Sedang memproses jadwal...'):
-                    # Cek hasil balikan fungsi
-                    hasil = update_jadwal_dari_pdf(pdf_file)
-                    
-                if hasil:
-                    st.success("✅ Jadwal Berhasil Diupdate!")
-                    st.toast("Data Ahmad Haerudin (Udin) & Tim Masuk Database!", icon="🔥")
-                    st.balloons()
-                    # Kasih jeda dikit sebelum rerun biar notif kebaca
-                    import time
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    st.error("❌ Gagal Update! Cek format PDF atau Mapping Nama.")
+    if pdf_file is not None:
+        hasil = update_jadwal_dari_pdf(pdf_file) # Panggil fungsinya
+        if hasil: # Jika True
+            st.success("✅ Jadwal Berhasil Diupdate!")
+            st.balloons()
+            st.rerun() # Paksa refresh data
+        else:
+            st.error("❌ Gagal Update. Cek fungsi return lu.")
             else:
                 st.warning("Pilih file PDF jadwal dulu)
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
 
 
