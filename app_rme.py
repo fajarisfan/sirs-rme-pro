@@ -48,6 +48,7 @@ def init_db():
     return conn
 def update_jadwal_dari_pdf(file_pdf):
     try:
+        import pdfplumber
         with pdfplumber.open(file_pdf) as pdf:
             table = pdf.pages[0].extract_table()
             mapping_nama = {
@@ -65,29 +66,31 @@ def update_jadwal_dari_pdf(file_pdf):
                 nama_full = str(row[1]).replace('\n', ' ')
                 for key_pdf, nama_singkat in mapping_nama.items():
                     if key_pdf.lower() in nama_full.lower():
-                        # Ambil semua tanggal (1-28/31)
                         for tgl in range(1, 32):
-                            col_idx = tgl + 1 # Penyesuaian kolom di PDF
+                            col_idx = tgl + 1
                             if col_idx < len(row) and row[col_idx]:
                                 shift = str(row[col_idx]).replace('\n', '').strip().upper()
                                 data_jadwal.append({"nama": nama_singkat, "tanggal": tgl, "shift": shift})
             
             if data_jadwal:
                 db = init_db()
-                db.execute("DELETE FROM jadwal_it") 
+                db.execute("DELETE FROM jadwal_it") # Bersihin data lama
                 pd.DataFrame(data_jadwal).to_sql('jadwal_it', db, if_exists='append', index=False)
-                db.commit()
+                db.commit() # Simpan permanen
                 db.close()
-                return True
+                return True # <--- INI KUNCI BIAR NOTIF MUNCUL
     except Exception as e:
-        st.error(f"Error: {e}")
-    return False
+        print(f"Error: {e}")
+    return False # <--- Kalo gagal balikannya False
     
 def get_it_aktif_sekarang():
+    from datetime import datetime
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
+    
     db = init_db()
     try:
+        # Ambil jadwal tim sesuai tanggal hari ini saja
         df_hari_ini = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal={tgl_ini}", db)
     except:
         df_hari_ini = pd.DataFrame()
@@ -97,36 +100,39 @@ def get_it_aktif_sekarang():
     if df_hari_ini.empty: return ["⚠️ Upload PDF Jadwal Dulu!"]
 
     for _, row in df_hari_ini.iterrows():
-        nama, s = row['nama'], str(row['shift']).upper()
+        nama, s = row['nama'], str(row['shift']).upper().strip()
         
-        # 1. Kalo jadwalnya Libur/Lepas, JANGAN MUNCUL
-        if any(x in s for x in ["L", "OFF", "LL", "/L"]) or s == "":
+        # 1. KALO KODE L (LIBUR) ATAU KOSONG, JANGAN MUNCULIN
+        if s in ["L", "OFF", "LL", "/L", ""] or s is None:
             continue
 
-        # 2. Logika Shift PAGI / PS / LPS (Pagi-Sore)
-        # Aktif jam 7 pagi sampai 4 sore (16:00)
-        if "P" in s or "PS" in s:
+        # 2. SHIFT PAGI (P) & PS (PAGI SIANG)
+        # Sesuai PDF: Pulang jam 14.00 (P) atau 16.00 (PS).
+        # Kita ambil batas aman jam 16.00 (4 sore) harus ilang.
+        if s == "P" or "PS" in s:
             if 7 <= jam_ini < 16:
                 petugas_on.append(f"{nama} ({s})")
 
-        # 3. Logika Shift SIANG (S)
-        elif "S" in s:
-            # Hisyam khusus sampai jam 10 malem
+        # 3. SHIFT SIANG (S)
+        elif s == "S":
+            # Hisyam (Siang) pulang jam 22.00
             if nama == "Hisyam":
-                if 14 <= jam_ini < 22:
+                if 13 <= jam_ini < 22:
                     petugas_on.append(f"{nama} ({s})")
-            # Teguh dkk sampai jam 9 malem
+            # Teguh dkk (Siang) pulang jam 21.00
             else:
                 if 14 <= jam_ini < 21:
                     petugas_on.append(f"{nama} ({s})")
 
-        # 4. Logika Shift MALAM (M / MM)
-        # Muncul jam 9 malem sampai jam 7 pagi besoknya
+        # 4. SHIFT MALAM (M / MM)
+        # Baru muncul jam 21.00 (9 malem) sampai jam 07.00 pagi
         elif "M" in s:
             if jam_ini >= 21 or jam_ini < 7:
                 petugas_on.append(f"{nama} ({s})")
     
+    # Hapus nama ganda dan urutkan
     petugas_on = sorted(list(set(petugas_on)))
+    
     return petugas_on if petugas_on else ["Tidak ada petugas standby"]
 # =========================================================
 # 3. SIDEBAR NAVIGATION
@@ -286,25 +292,28 @@ elif menu == "📊 Dashboard Jadwal":
     st.header("📊 Dashboard Jadwal IT")
     with st.container(border=True):
         pdf_file = st.file_uploader("Upload PDF Jadwal Baru", type="pdf")
-        if pdf_file and st.button("🚀 Proses Update"):
-            if update_jadwal_dari_pdf(pdf_file):
-                st.success("Jadwal Berhasil Diupdate!")
-                st.balloons()
-                st.rerun()
-
-    st.divider()
-    st.subheader("📅 Preview Database Jadwal")
-    db = init_db()
-    try:
-        df_view = pd.read_sql_query("SELECT * FROM jadwal_it ORDER BY tanggal ASC", db)
-        if not df_view.empty:
-            cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, datetime.now().day)
-            st.table(df_view[df_view['tanggal'] == cek_tgl])
-        else:
-            st.warning("Database Jadwal Kosong.")
+        if st.button("🚀 Proses Update"):
+            if pdf_file is not None:
+                with st.spinner('Sedang memproses jadwal...'):
+                    # Cek hasil balikan fungsi
+                    hasil = update_jadwal_dari_pdf(pdf_file)
+                    
+                if hasil:
+                    st.success("✅ Jadwal Berhasil Diupdate!")
+                    st.toast("Data Ahmad Haerudin (Udin) & Tim Masuk Database!", icon="🔥")
+                    st.balloons()
+                    # Kasih jeda dikit sebelum rerun biar notif kebaca
+                    import time
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("❌ Gagal Update! Cek format PDF atau Mapping Nama.")
+            else:
+                st.warning("Pilih file PDF jadwal dulu)
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
 
 
