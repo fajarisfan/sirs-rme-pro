@@ -75,6 +75,7 @@ def update_jadwal_dari_pdf(file_pdf):
     except Exception as e:
         st.error(f"Error baca PDF: {e}")
     return False
+    
 def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, jam_ini = now.day, now.hour
@@ -91,31 +92,34 @@ def get_it_aktif_sekarang():
     for _, row in df_hari_ini.iterrows():
         nama, s = row['nama'], row['shift']
         
-        # 1. LOGIKA SHIFT PAGI (P) - Jam 7 sampe jam 2 siang
+        # 1. SHIFT PAGI (P) - Jaka & Isfan Pulang Jam 14:00 (Jam 2 Siang)
         if s == "P" and 7 <= jam_ini < 14:
             petugas_on.append(nama)
             
-        # 2. LOGIKA SHIFT SIANG (S) 
+        # 2. SHIFT SIANG (S) - Teguh Jam 21:00, Hisyam Jam 22:00
         elif s == "S":
-            if nama == "Hisyam" and 14 <= jam_ini < 22: # Hisyam jam 10 malem
+            if nama == "Hisyam" and 14 <= jam_ini < 22:
                 petugas_on.append(nama)
-            elif 14 <= jam_ini < 21: # Selain Hisyam jam 9 malem (termasuk Teguh)
+            elif 14 <= jam_ini < 21: # Teguh dkk
                 petugas_on.append(nama)
                 
-        # 3. LOGIKA SHIFT MALAM (M / MM) - Jam 9 malem sampe jam 7 pagi
+        # 3. SHIFT MALAM (M / MM) - Jam 21:00 sampe 07:00
         elif (s == "M" or s == "MM") and (jam_ini >= 21 or jam_ini < 7):
             petugas_on.append(nama)
             
-        # 4. LOGIKA SHIFT PS / LPS (ADMIN)
+        # 4. SHIFT PS / LPS (ADMIN) - Rey & Ferdi Pulang Jam 16:00 (Jam 4 Sore)
         elif s in ["PS", "LPS"]:
-            if nama == "Hisyam" and 7 <= jam_ini < 22: # Hisyam PS sampe jam 10 malem
+            # Kalau Rey atau Ferdi shift PS, jam 4 sore (16:00) harus ILANG
+            if nama in ["Rey", "Ferdi", "Isfan", "Jaka"] and 7 <= jam_ini < 16:
                 petugas_on.append(nama)
-            elif 7 <= jam_ini < 21: # Selain Hisyam (Teguh dkk) jam 9 malem
+            # Hisyam kalau PS tetep ikut aturan lembur dia (opsional, sesuaikan)
+            elif nama == "Hisyam" and 7 <= jam_ini < 22:
+                petugas_on.append(nama)
+            # Default PS lainnya (Teguh dkk) jam 4 sore juga
+            elif 7 <= jam_ini < 16:
                 petugas_on.append(nama)
     
-    # Bersihin nama yang ganda & urutin biar rapi
     petugas_on = sorted(list(set(petugas_on)))
-    
     return petugas_on if petugas_on else ["Tidak ada petugas standby"]
 # =========================================================
 # 3. SIDEBAR NAVIGATION
@@ -294,5 +298,6 @@ elif menu == "📊 Dashboard Jadwal":
     except:
         st.error("Gagal load pratinjau.")
     db.close()
+
 
 
