@@ -77,8 +77,14 @@ def update_jadwal_dari_pdf(file_pdf):
                 return True
     except: return False
     return False
-
+    
+    @st.cache_data(ttl=60)
 def get_it_aktif_sekarang():
+    import pytz
+    tz = pytz.timezone('Asia/Jakarta')
+    now = datetime.now(tz) 
+    
+    tgl_ini, tgl_kmrn, jam_ini = now.day, (now -
     now = datetime.now()
     tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
     
@@ -162,18 +168,18 @@ if menu == "📊 Monitor Antrian":
 # =========================================================
 elif menu == "📝 Input Form":
     st.header("📝 Form Penghapusan RME")
-    if 'step' not in st.session_state: st.session_state.step = 1
-    if 'data_p' not in st.session_state: st.session_state.data_p = []
     
+    # 1. Panggil fungsi sakti lu di sini
     petugas_ready = get_it_aktif_sekarang()
 
-    with st.expander("👤 Identitas Pemohon", expanded=(st.session_state.step == 1)):
+    with st.expander("👤 Identitas Pemohon", expanded=True):
         c1, c2 = st.columns(2)
         u_nama = c1.text_input("Nama Pemohon")
-        u_nip = c1.text_input("NIP/NIK")
         u_unit = c2.text_input("Unit/Ruangan")
+        
+        # 2. Masukkan hasilnya ke selectbox
+        # Jam 18:45 ini, isinya otomatis cuma Teguh & Hisyam
         u_it = c2.selectbox("Petugas IT Standby", petugas_ready)
-
     if st.session_state.step == 1:
         st.session_state.jml = st.number_input("Jumlah Pasien", 1, 4, 1)
 
@@ -300,4 +306,5 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
 
