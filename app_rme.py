@@ -78,53 +78,54 @@ def update_jadwal_dari_pdf(file_pdf):
     except: return False
     return False
     
-    @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_it_aktif_sekarang():
     import pytz
-    tz = pytz.timezone('Asia/Jakarta')
-    now = datetime.now(tz) 
-    
-    tgl_ini, tgl_kmrn, jam_ini = now.day, (now -
-    now = datetime.now()
-    tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
-    
-    db = init_db()
     try:
+        # 1. SET TIMEZONE JAKARTA
+        tz = pytz.timezone('Asia/Jakarta')
+        now = datetime.now(tz) 
+        
+        tgl_ini = now.day
+        tgl_kmrn = (now - timedelta(days=1)).day
+        jam_ini = now.hour
+        
+        db = init_db()
+        # Ambil data hari ini & kemarin buat cover shift malam
         df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
-    except: 
-        df = pd.DataFrame()
-    db.close()
-    
-    petugas_on = []
-    if df.empty: return ["⚠️ Database Kosong"]
+        db.close()
+        
+        petugas_on = []
+        if df.empty: return ["⚠️ Database Kosong"]
 
-    for _, row in df.iterrows():
-        nama, s, tgl_data = row['nama'], str(row['shift']).upper().strip(), int(row['tanggal'])
+        for _, row in df.iterrows():
+            nama, s, tgl_data = row['nama'], str(row['shift']).upper().strip(), int(row['tanggal'])
 
-        # --- LOGIKA SHIFT MALAM (M/MM) ---
-        if "M" in s:
-            # 1. Kalau ini data TANGGAL KEMARIN (Tgl 12), muncul cuma sampai jam 7 pagi ini
-            if tgl_data == tgl_kmrn and jam_ini < 7:
-                petugas_on.append(f"{nama}")
-            # 2. Kalau ini data TANGGAL SEKARANG (Tgl 13), BARU BOLEH MUNCUL jam 9 malem nanti
-            elif tgl_data == tgl_ini and jam_ini >= 21:
-                petugas_on.append(f"{nama}")
+            # --- LOGIKA SHIFT MALAM (M) ---
+            if "M" in s:
+                # Lepas piket (Malam kemarin, pulang jam 7 pagi ini)
+                if tgl_data == tgl_kmrn and jam_ini < 7:
+                    petugas_on.append(nama)
+                # Masuk piket (Malam ini, baru muncul jam 9 malem)
+                elif tgl_data == tgl_ini and jam_ini >= 21:
+                    petugas_on.append(nama)
 
-        # --- LOGIKA SHIFT PAGI / NON-SHIFT (P/PS) ---
-        elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
-            # Muncul jam 07:00 sampai 15:59
-            if 7 <= jam_ini < 16:
-                petugas_on.append(f"{nama}")
+            # --- LOGIKA SHIFT PAGI (P/PS) ---
+            elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
+                # Muncul jam 7 pagi sampe jam 4 sore
+                if 7 <= jam_ini < 16:
+                    petugas_on.append(nama)
 
-        # --- LOGIKA SHIFT SIANG (S) ---
-        elif s == "S" and tgl_data == tgl_ini:
-            # Hisyam pulang jam 10 malem, lainnya jam 9 malem
-            limit = 22 if "HISYAM" in nama.upper() else 21
-            if 14 <= jam_ini < limit:
-                petugas_on.append(f"{nama}")
+            # --- LOGIKA SHIFT SIANG (S) ---
+            elif s == "S" and tgl_data == tgl_ini:
+                # Muncul jam 2 siang sampe jam 9/10 malem
+                limit = 22 if "HISYAM" in nama.upper() else 21
+                if 14 <= jam_ini < limit:
+                    petugas_on.append(nama)
 
-    # Hilangkan duplikat & urutkan
-    return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
+        return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
+    except Exception as e:
+        return [f"⚠️ Error Jadwal: {e}"]
 # =========================================================
 # 3. SIDEBAR NAVIGATION
 # =========================================================
@@ -168,7 +169,9 @@ if menu == "📊 Monitor Antrian":
 # =========================================================
 elif menu == "📝 Input Form":
     st.header("📝 Form Penghapusan RME")
-    
+    # INISIALISASI STATE AGAR TIDAK ERROR
+    if 'step' not in st.session_state: st.session_state.step = 1
+    if 'data_p' not in st.session_state: st.session_state.data_p = []
     # 1. Panggil fungsi sakti lu di sini
     petugas_ready = get_it_aktif_sekarang()
 
@@ -306,5 +309,6 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
 
 
