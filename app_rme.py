@@ -270,13 +270,9 @@ elif menu == "📊 Dashboard Jadwal":
         if st.button("🚀 Proses Update Sekarang"):
             if pdf_file is not None:
                 with st.spinner('Sedang memproses jadwal...'):
-                    hasil = update_jadwal_dari_pdf(pdf_file)
-                
+                    hasil = update_jadwal_dari_pdf(pdf_file)  
                 if hasil:
                     st.success("✅ Jadwal Berhasil Diupdate!")
-                    st.balloons()
-                    # Jeda dikit biar lu sempet liat notifnya
-                    import time
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -308,6 +304,7 @@ elif menu == "📊 Dashboard Jadwal":
             st.warning("Database Jadwal Kosong.")
     except Exception as e:
         st.error(f"Gagal load pratinjau: {e}")
+
 
 
 
