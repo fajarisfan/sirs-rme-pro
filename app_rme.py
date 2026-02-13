@@ -49,10 +49,10 @@ def init_db():
 def update_jadwal_dari_pdf(file_pdf):
     try:
         import pdfplumber
-        import sqlite3
-        
         with pdfplumber.open(file_pdf) as pdf:
             table = pdf.pages[0].extract_table()
+            
+            # Mapping Nama: Ahmad Haerudin jadi Udin
             mapping_nama = {
                 "Teguh Adi Pradana": "Teguh",
                 "Jaka Gilang R": "Jaka",
@@ -70,8 +70,8 @@ def update_jadwal_dari_pdf(file_pdf):
                 
                 for key_pdf, nama_singkat in mapping_nama.items():
                     if key_pdf.lower() in nama_full.lower():
-                        # Ambil tanggal 1-28 (Februari)
-                        for tgl in range(1, 29):
+                        # Loop tanggal (sesuaikan range tgl bulan berjalan)
+                        for tgl in range(1, 32):
                             col_idx = tgl + 1
                             if col_idx < len(row) and row[col_idx]:
                                 shift = str(row[col_idx]).replace('\n', '').strip().upper()
@@ -82,16 +82,14 @@ def update_jadwal_dari_pdf(file_pdf):
                                 })
             
             if data_jadwal:
-                # PAKAI KONEKSI LANGSUNG BIAR GAK LOCK
-                conn = sqlite3.connect('database_it.db') # Sesuaikan nama file db lu
-                df_baru = pd.DataFrame(data_jadwal)
-                # REPLACE biar data lama beneran ilang total
-                df_baru.to_sql('jadwal_it', conn, if_exists='replace', index=False)
-                conn.commit()
-                conn.close()
+                db = init_db()
+                # Replace biar data lama beneran dibuang, gak numpuk
+                pd.DataFrame(data_jadwal).to_sql('jadwal_it', db, if_exists='replace', index=False)
+                db.commit()
+                db.close()
                 return True
     except Exception as e:
-        st.error(f"Gagal Simpan: {e}")
+        print(f"Error: {e}")
     return False
     
 def get_it_aktif_sekarang():
@@ -334,6 +332,7 @@ elif menu == "📊 Dashboard Jadwal":
             st.warning("Database Jadwal Kosong.")
     except Exception as e:
         st.error(f"Gagal load pratinjau: {e}")
+
 
 
 
