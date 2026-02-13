@@ -81,31 +81,44 @@ def update_jadwal_dari_pdf(file_pdf):
 def get_it_aktif_sekarang():
     now = datetime.now()
     tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
+    
     db = init_db()
     try:
         df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
-    except: df = pd.DataFrame()
+    except: 
+        df = pd.DataFrame()
     db.close()
     
     petugas_on = []
     if df.empty: return ["⚠️ Database Kosong"]
-    
+
     for _, row in df.iterrows():
         nama, s, tgl_data = row['nama'], str(row['shift']).upper().strip(), int(row['tanggal'])
-        # Logika Shift Malam
-        if "M" in s:
-            if tgl_data == tgl_kmrn and jam_ini < 7: petugas_on.append(f"{nama} (Malam)")
-            elif tgl_data == tgl_ini and jam_ini >= 21: petugas_on.append(f"{nama} (Malam)")
-        # Logika Pagi
-        elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
-            if 7 <= jam_ini < 16: petugas_on.append(f"{nama} (Standby)")
-        # Logika Siang
-        elif s == "S" and tgl_data == tgl_ini:
-            limit = 22 if "HISYAM" in nama.upper() else 21
-            if 14 <= jam_ini < limit: petugas_on.append(f"{nama} (Siang)")
-            
-    return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
 
+        # --- LOGIKA SHIFT MALAM (M/MM) ---
+        if "M" in s:
+            # 1. Kalau ini data TANGGAL KEMARIN (Tgl 12), muncul cuma sampai jam 7 pagi ini
+            if tgl_data == tgl_kmrn and jam_ini < 7:
+                petugas_on.append(f"{nama}")
+            # 2. Kalau ini data TANGGAL SEKARANG (Tgl 13), BARU BOLEH MUNCUL jam 9 malem nanti
+            elif tgl_data == tgl_ini and jam_ini >= 21:
+                petugas_on.append(f"{nama}")
+
+        # --- LOGIKA SHIFT PAGI / NON-SHIFT (P/PS) ---
+        elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
+            # Muncul jam 07:00 sampai 15:59
+            if 7 <= jam_ini < 16:
+                petugas_on.append(f"{nama}")
+
+        # --- LOGIKA SHIFT SIANG (S) ---
+        elif s == "S" and tgl_data == tgl_ini:
+            # Hisyam pulang jam 10 malem, lainnya jam 9 malem
+            limit = 22 if "HISYAM" in nama.upper() else 21
+            if 14 <= jam_ini < limit:
+                petugas_on.append(f"{nama}")
+
+    # Hilangkan duplikat & urutkan
+    return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
 # =========================================================
 # 3. SIDEBAR NAVIGATION
 # =========================================================
@@ -287,3 +300,4 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
