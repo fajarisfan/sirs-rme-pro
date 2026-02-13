@@ -81,7 +81,6 @@ def update_jadwal_dari_pdf(file_pdf):
     except: return False
     
 def get_it_aktif_sekarang():
-def get_it_aktif_sekarang():
     from datetime import datetime, timedelta
     now = datetime.now()
     tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
@@ -309,6 +308,7 @@ elif menu == "📊 Dashboard Jadwal":
             st.warning("Database Jadwal Kosong.")
     except Exception as e:
         st.error(f"Gagal load pratinjau: {e}")
+
 
 
 
