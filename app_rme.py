@@ -247,19 +247,25 @@ elif menu == "👨‍💻 Workspace IT":
                     }
                     
                     # --- 3. ISI TABEL PASIEN (1-4) ---
-                    # Kita looping buat nama, rm, tgl (kunjungan), dan alasan
+                    p_json = json.loads(t[2])
                     for i in range(4):
                         sfx = "" if i==0 else str(i+1)
                         if i < len(p_json):
+                            # Jika ada data pasien, isi sesuai input
                             ctx.update({
                                 f'nama{sfx}': p_json[i]['nama'], 
                                 f'rm{sfx}': p_json[i]['rm'], 
-                                f'tgl{sfx}': tgl_indo, # Tanggal kunjungan default ke hari ini
+                                f'tgl{sfx}': tgl_indo, 
                                 f'alasan{sfx}': p_json[i]['alasan']
                             })
                         else:
-                            # Isi strip jika data pasien kosong agar tabel tetap rapi
-                            ctx.update({f'nama{sfx}': "-", f'rm{sfx}': "-", f'tgl{sfx}': "-", f'alasan{sfx}': "-"})
+                            # JIKA KOSONG, ISI STRING KOSONG (BIAR BERSIH TANPA STRIP)
+                            ctx.update({
+                                f'nama{sfx}': "", 
+                                f'rm{sfx}': "", 
+                                f'tgl{sfx}': "", 
+                                f'alasan{sfx}': ""
+                            })
                     
                     doc.render(ctx)
                     nama_file_baru = f"{t[14]}_{t[13]}.docx"
@@ -324,6 +330,7 @@ elif menu == "📅 Dashboard Jadwal":
             st.table(df_view[df_view['tanggal'] == cek_tgl])
         db.close()
     except: st.error("Gagal preview.")
+
 
 
 
