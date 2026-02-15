@@ -187,7 +187,7 @@ elif menu == "📝 Input Form":
         c1, c2 = st.columns(2)
         u_nama = c1.text_input("Nama Pemohon")
         u_unit = c2.text_input("Unit/Ruangan")
-        u_nip = c1.text_input("NIP Pemohon", value="-")
+        u_nip = c1.text_input("NIP Pemohon", placeholder="Ketik NIP di sini...")
         # 2. Masukkan hasilnya ke selectbox
         # Jam 18:45 ini, isinya otomatis cuma Teguh & Hisyam
         u_it = c2.selectbox("Petugas IT Standby", petugas_ready)
@@ -317,6 +317,7 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
 
 
 
