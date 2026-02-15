@@ -197,7 +197,6 @@ elif menu == "👨‍💻 Workspace IT":
     st_autorefresh(5000)
     st.header("👨‍💻 Workspace IT")
     
-    # --- OTOMATIS FILTER NAMA SESUAI JADWAL ---
     petugas_aktif = get_it_aktif_sekarang()
     if "Tidak ada petugas standby" in petugas_aktif or "⚠️" in petugas_aktif[0]:
         it_nama = st.selectbox("Pilih Nama (Mode Darurat):", LIST_IT)
@@ -219,21 +218,35 @@ elif menu == "👨‍💻 Workspace IT":
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
                 
                 if st.button(f"Selesaikan {t[0]}", type="primary"):
-                    # 1. Tentukan Nama File Baru (Format: NAMA_RM.docx)
+                    # --- 1. LOGIKA TANGGAL OTOMATIS ---
+                    now = get_now_jakarta()
+                    hari_map = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat', 'Saturday': 'Sabtu', 'Sunday': 'Minggu'}
+                    bulan_map = {'January': 'Januari', 'February': 'Februari', 'March': 'Maret', 'April': 'April', 'May': 'Mei', 'June': 'Juni', 'July': 'Juli', 'August': 'Agustus', 'September': 'September', 'October': 'Oktober', 'November': 'November', 'December': 'Desember'}
+                    
+                    hari_ini = hari_map[now.strftime('%A')]
+                    tgl_lengkap = f"{now.strftime('%d')} {bulan_map[now.strftime('%B')]} {now.strftime('%Y')}"
+                    jam_selesai_wib = now.strftime("%H:%M")
+
+                    # --- 2. PROSES FILE DOCX ---
                     nama_file_baru = f"{t[14]}_{t[13]}.docx" 
-                    jam_selesai_wib = get_now_jakarta().strftime("%H:%M")
                     path_it = f"temp/ttd_it_{t[0]}.png"
                     Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
                     
-                    # 2. DOCX GENERATION
                     doc = DocxTemplate("template_rme.docx")
+                    
+                    # Context untuk isi tag {{...}} di Word
                     ctx = {
-                        'unit': t[1], 'pemohon': t[7], 'nip_user': t[8], 'penerima': it_nama,
+                        'hari': hari_ini,           # Muncul di {{hari}}
+                        'tanggal_skrg': tgl_lengkap, # Muncul di {{tanggal_skrg}}
+                        'unit': t[1],               # Muncul di {{unit}} - Otomatis dari database
+                        'pemohon': t[7], 
+                        'nip_user': t[8], 
+                        'penerima': it_nama,
                         'ttd_user': InlineImage(doc, t[11], width=Inches(1.2)),
                         'ttd_it': InlineImage(doc, path_it, width=Inches(1.2))
                     }
                     
-                    # 3. FIX TABEL: Gak ada strip kalau kosong
+                    # Isi tabel pasien (maksimal 4 baris sesuai template lu)
                     for i in range(4):
                         sfx = "" if i==0 else str(i+1)
                         if i < len(p_json):
@@ -244,25 +257,23 @@ elif menu == "👨‍💻 Workspace IT":
                     doc.render(ctx)
                     doc.save(f"arsip_rme/{nama_file_baru}")
                     
-                    # 4. UPDATE DATABASE & SYNC
+                    # --- 3. UPDATE DATABASE ---
                     try:
-                        alasan_supa = p_json[0]['alasan'] if p_json else "-"
                         supabase.table("arsip_rme").insert({
                             "nama_pasien": str(t[14]), "no_rm": str(t[13]), 
-                            "alasan": str(alasan_supa), "status": "Selesai"
+                            "alasan": str(p_json[0]['alasan'] if p_json else "-"), "status": "Selesai"
                         }).execute()
                     except: pass 
                     
                     db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=?, file_name=? WHERE id=?", 
                                (jam_selesai_wib, nama_file_baru, t[0]))
                     db.commit()
-                    st.success(f"Berhasil disimpan sebagai {nama_file_baru}")
+                    st.success(f"✅ Berhasil! File: {nama_file_baru}")
                     time.sleep(1)
                     st.rerun()
     else: 
         st.info("Antrian bersih.")
         db.close()
-
 # =========================================================
 # 7. ARSIP DIGITAL
 # =========================================================
@@ -303,3 +314,4 @@ elif menu == "📅 Dashboard Jadwal":
             st.table(df_view[df_view['tanggal'] == cek_tgl])
         db.close()
     except: st.error("Gagal preview.")
+
