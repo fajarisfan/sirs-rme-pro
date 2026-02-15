@@ -10,7 +10,7 @@ from streamlit_autorefresh import st_autorefresh
 from supabase import create_client
 import pdfplumber
 import time
-import pytz # Pastikan sudah ada di requirements.txt
+import pytz 
 
 # =========================================================
 # 1. CORE CONFIG & FUNCTIONS
@@ -21,12 +21,10 @@ supabase = create_client(url, key)
 
 st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
 
-# Fungsi dapetin waktu Jakarta (WIB)
 def get_now_jakarta():
     tz = pytz.timezone('Asia/Jakarta')
     return datetime.now(tz)
 
-# Folder Setup
 for folder in ["temp", "arsip_rme"]:
     if not os.path.exists(folder): os.makedirs(folder)
 
@@ -175,7 +173,6 @@ elif menu == "📝 Input Form":
         canvas = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key="can_u")
         if st.button("🚀 KIRIM KE IT", type="primary"):
             if canvas.image_data is not None and u_nama and u_nip:
-                # FIX JAM & SYNTAX ERROR DISINI
                 jam_sekarang_wib = get_now_jakarta().strftime("%H:%M")
                 path_ttd = f"temp/ttd_u_{datetime.now().strftime('%H%M%S')}.png"
                 Image.fromarray(canvas.image_data.astype('uint8')).save(path_ttd)
@@ -194,12 +191,21 @@ elif menu == "📝 Input Form":
             else: st.error("Lengkapi data & tanda tangan!")
 
 # =========================================================
-# 6. WORKSPACE IT
+# 6. WORKSPACE IT (DENGAN FIX NAMA FILE & TABEL)
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
     st_autorefresh(5000)
     st.header("👨‍💻 Workspace IT")
-    it_nama = st.selectbox("Pilih Nama Lu:", LIST_IT)
+    
+    # --- OTOMATIS FILTER NAMA SESUAI JADWAL ---
+    petugas_aktif = get_it_aktif_sekarang()
+    if "Tidak ada petugas standby" in petugas_aktif or "⚠️" in petugas_aktif[0]:
+        it_nama = st.selectbox("Pilih Nama (Mode Darurat):", LIST_IT)
+    else:
+        it_nama = st.selectbox("Petugas IT Aktif Saat Ini:", petugas_aktif)
+    
+    st.info(f"Login sebagai: **{it_nama}**")
+    
     db = init_db()
     tasks = db.execute("SELECT * FROM rme_tasks WHERE status='Masuk Antrian' AND it_executor=?", (it_nama,)).fetchall()
     
@@ -211,23 +217,34 @@ elif menu == "👨‍💻 Workspace IT":
                 for p in p_json: st.write(f"- {p['nama']} (RM: {p['rm']})")
                 
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
+                
                 if st.button(f"Selesaikan {t[0]}", type="primary"):
+                    # 1. Tentukan Nama File Baru (Format: NAMA_RM.docx)
+                    nama_file_baru = f"{t[14]}_{t[13]}.docx" 
                     jam_selesai_wib = get_now_jakarta().strftime("%H:%M")
                     path_it = f"temp/ttd_it_{t[0]}.png"
                     Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
                     
-                    # DOCX GENERATION
+                    # 2. DOCX GENERATION
                     doc = DocxTemplate("template_rme.docx")
-                    ctx = {'unit': t[1], 'pemohon': t[7], 'nip_user': t[8], 'penerima': it_nama,
-                           'ttd_user': InlineImage(doc, t[11], width=Inches(1.2)),
-                           'ttd_it': InlineImage(doc, path_it, width=Inches(1.2))}
+                    ctx = {
+                        'unit': t[1], 'pemohon': t[7], 'nip_user': t[8], 'penerima': it_nama,
+                        'ttd_user': InlineImage(doc, t[11], width=Inches(1.2)),
+                        'ttd_it': InlineImage(doc, path_it, width=Inches(1.2))
+                    }
+                    
+                    # 3. FIX TABEL: Gak ada strip kalau kosong
                     for i in range(4):
                         sfx = "" if i==0 else str(i+1)
-                        if i < len(p_json): ctx.update({f'nama{sfx}':p_json[i]['nama'], f'rm{sfx}':p_json[i]['rm'], f'alasan{sfx}':p_json[i]['alasan']})
-                        else: ctx.update({f'nama{sfx}':"-", f'rm{sfx}':"-", f'alasan{sfx}':"-"})
-                    doc.render(ctx); doc.save(f"arsip_rme/{t[4]}")
+                        if i < len(p_json):
+                            ctx.update({f'nama{sfx}':p_json[i]['nama'], f'rm{sfx}':p_json[i]['rm'], f'alasan{sfx}':p_json[i]['alasan']})
+                        else:
+                            ctx.update({f'nama{sfx}':"", f'rm{sfx}':"", f'alasan{sfx}':""})
                     
-                    # SYNC SUPABASE (Gak bakal bikin error karena pake Try)
+                    doc.render(ctx)
+                    doc.save(f"arsip_rme/{nama_file_baru}")
+                    
+                    # 4. UPDATE DATABASE & SYNC
                     try:
                         alasan_supa = p_json[0]['alasan'] if p_json else "-"
                         supabase.table("arsip_rme").insert({
@@ -236,9 +253,15 @@ elif menu == "👨‍💻 Workspace IT":
                         }).execute()
                     except: pass 
                     
-                    db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (jam_selesai_wib, t[0]))
-                    db.commit(); st.rerun()
-    else: st.info("Antrian bersih."); db.close()
+                    db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=?, file_name=? WHERE id=?", 
+                               (jam_selesai_wib, nama_file_baru, t[0]))
+                    db.commit()
+                    st.success(f"Berhasil disimpan sebagai {nama_file_baru}")
+                    time.sleep(1)
+                    st.rerun()
+    else: 
+        st.info("Antrian bersih.")
+        db.close()
 
 # =========================================================
 # 7. ARSIP DIGITAL
@@ -253,9 +276,10 @@ elif menu == "📂 Arsip Digital":
                 c1, c2, c3 = st.columns([3,2,1])
                 c1.write(f"**{r['pasien_display']}** (RM: {r['rm_utama']})")
                 c2.write(f"Petugas: {r['it_executor']} | Selesai: {r['waktu_selesai']}")
-                if os.path.exists(f"arsip_rme/{r['file_name']}"):
-                    with open(f"arsip_rme/{r['file_name']}", "rb") as f:
-                        c3.download_button("📂 Download", f, file_name=r['file_name'], key=f"dl_{r['id']}")
+                file_path = f"arsip_rme/{r['file_name']}"
+                if os.path.exists(file_path):
+                    with open(file_path, "rb") as f:
+                        c3.download_button(f"📂 Download", f, file_name=r['file_name'], key=f"dl_{r['id']}")
     else: st.info("Belum ada arsip."); db.close()
 
 # =========================================================
