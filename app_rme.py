@@ -191,7 +191,7 @@ elif menu == "📝 Input Form":
             else: st.error("Lengkapi data & tanda tangan!")
 
 # =========================================================
-# 6. WORKSPACE IT (DENGAN FIX NAMA FILE & TABEL)
+# 6. WORKSPACE IT (SINKRON DENGAN TEMPLATE)
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
     st_autorefresh(5000)
@@ -217,55 +217,69 @@ elif menu == "👨‍💻 Workspace IT":
                 
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
                 
-               if st.button(f"Selesaikan {t[0]}", type="primary"):
-                    # --- LOGIKA WAKTU INDONESIA ---
+                if st.button(f"Selesaikan {t[0]}", type="primary"):
+                    # --- 1. LOGIKA WAKTU OTOMATIS (SINKRON KE TEMPLATE) ---
                     now = get_now_jakarta()
                     hari_map = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat', 'Saturday': 'Sabtu', 'Sunday': 'Minggu'}
                     bulan_map = {'January': 'Januari', 'February': 'Februari', 'March': 'Maret', 'April': 'April', 'May': 'Mei', 'June': 'Juni', 'July': 'Juli', 'August': 'Agustus', 'September': 'September', 'October': 'Oktober', 'November': 'November', 'December': 'Desember'}
                     
-                    hari_ini = hari_map[now.strftime('%A')]
+                    nama_hari = hari_map[now.strftime('%A')]
                     tgl_indo = f"{now.strftime('%d')} {bulan_map[now.strftime('%B')]} {now.strftime('%Y')}"
+                    
+                    # Gabungkan Hari dan Tanggal untuk variabel {{tgl_full}} di Word
+                    hari_tgl_gabung = f"{nama_hari}, {tgl_indo}"
+                    jam_selesai_wib = now.strftime("%H:%M")
 
-                    # --- PROSES DOKUMEN ---
+                    # --- 2. PROSES DOKUMEN ---
                     doc = DocxTemplate("template_rme.docx")
                     path_it = f"temp/ttd_it_{t[0]}.png"
                     Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
                     
-                    #ctx (Context) harus rapih supaya di Word manggilnya gampang
+                    # Mapping variabel sesuai isi template_rme.docx lu
                     ctx = {
-                        'hari': hari_ini,
-                        'unit': t[1].upper(), # Kita bikin huruf besar semua biar rapih
-                        'tanggal_skrg': tgl_indo,
+                        'tgl_full': hari_tgl_gabung,  # Ini yang mengisi "Pada hari {{tgl_full}}"
+                        'unit': t[1].upper(),
+                        'penerima': it_nama,
                         'pemohon': t[7],
                         'nip_user': t[8],
-                        'penerima': it_nama,
                         'ttd_user': InlineImage(doc, t[11], width=Inches(1.0)),
                         'ttd_it': InlineImage(doc, path_it, width=Inches(1.0))
                     }
                     
-                    # Isi Tabel Pasien (1-4)
-                    p_json = json.loads(t[2])
+                    # --- 3. ISI TABEL PASIEN (1-4) ---
+                    # Kita looping buat nama, rm, tgl (kunjungan), dan alasan
                     for i in range(4):
                         sfx = "" if i==0 else str(i+1)
                         if i < len(p_json):
                             ctx.update({
                                 f'nama{sfx}': p_json[i]['nama'], 
                                 f'rm{sfx}': p_json[i]['rm'], 
+                                f'tgl{sfx}': tgl_indo, # Tanggal kunjungan default ke hari ini
                                 f'alasan{sfx}': p_json[i]['alasan']
                             })
                         else:
-                            # Jika data pasien kurang dari 4, isi dengan strip agar tidak berantakan
-                            ctx.update({f'nama{sfx}': "-", f'rm{sfx}': "-", f'alasan{sfx}': "-"})
+                            # Isi strip jika data pasien kosong agar tabel tetap rapi
+                            ctx.update({f'nama{sfx}': "-", f'rm{sfx}': "-", f'tgl{sfx}': "-", f'alasan{sfx}': "-"})
                     
                     doc.render(ctx)
-                    # Simpan file
                     nama_file_baru = f"{t[14]}_{t[13]}.docx"
                     doc.save(f"arsip_rme/{nama_file_baru}")
                     
-                    # (Lanjutkan ke proses update database lu seperti biasa...)
-                    db.execute("UPDATE rme_tasks SET status='Selesai' WHERE id=?", (t[0],))
+                    # --- 4. UPDATE DATABASE ---
+                    try:
+                        alasan_supa = p_json[0]['alasan'] if p_json else "-"
+                        supabase.table("arsip_rme").insert({
+                            "nama_pasien": str(t[14]), "no_rm": str(t[13]), 
+                            "alasan": str(alasan_supa), "status": "Selesai"
+                        }).execute()
+                    except: pass 
+
+                    db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=?, file_name=? WHERE id=?", 
+                               (jam_selesai_wib, nama_file_baru, t[0]))
                     db.commit()
-                    st.success("✅ Dokumen Berhasil Dirapihkan!")
+                    
+                    st.success(f"✅ Dokumen {nama_file_baru} Berhasil Dibuat!")
+                    time.sleep(1)
                     st.rerun()
     else: 
         st.info("Antrian bersih.")
@@ -310,5 +324,6 @@ elif menu == "📅 Dashboard Jadwal":
             st.table(df_view[df_view['tanggal'] == cek_tgl])
         db.close()
     except: st.error("Gagal preview.")
+
 
 
