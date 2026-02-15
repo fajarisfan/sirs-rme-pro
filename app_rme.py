@@ -11,6 +11,7 @@ from supabase import create_client
 import pdfplumber
 import time
 import pytz 
+import subprocess
 
 # =========================================================
 # 1. CORE CONFIG & FUNCTIONS
@@ -20,6 +21,15 @@ key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
+
+def convert_to_pdf(docx_path, output_dir):
+    try:
+        # Perintah terminal untuk LibreOffice
+        subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', docx_path, '--outdir', output_dir], check=True)
+        return docx_path.replace(".docx", ".pdf")
+    except Exception as e:
+        st.error(f"Gagal konversi PDF: {e}")
+        return None
 
 def get_now_jakarta():
     tz = pytz.timezone('Asia/Jakarta')
@@ -270,6 +280,8 @@ elif menu == "👨‍💻 Workspace IT":
                     doc.render(ctx)
                     nama_file_baru = f"{t[14]}_{t[13]}.docx"
                     doc.save(f"arsip_rme/{nama_file_baru}")
+                    path_docx = f"arsip_rme/{nama_file_baru}"
+                    convert_to_pdf(path_docx, "arsip_rme/")
                     
                     # --- 4. UPDATE DATABASE ---
                     try:
@@ -300,14 +312,32 @@ elif menu == "📂 Arsip Digital":
     if not df_arsip.empty:
         for _, r in df_arsip.iterrows():
             with st.container(border=True):
-                c1, c2, c3 = st.columns([3,2,1])
+                # Gue ubah kolomnya jadi 4 biar muat tombol PDF
+                c1, c2, c3, c4 = st.columns([3,2,1,1]) 
+                
                 c1.write(f"**{r['pasien_display']}** (RM: {r['rm_utama']})")
                 c2.write(f"Petugas: {r['it_executor']} | Selesai: {r['waktu_selesai']}")
-                file_path = f"arsip_rme/{r['file_name']}"
-                if os.path.exists(file_path):
-                    with open(file_path, "rb") as f:
-                        c3.download_button(f"📂 Download", f, file_name=r['file_name'], key=f"dl_{r['id']}")
-    else: st.info("Belum ada arsip."); db.close()
+                
+                file_path_docx = f"arsip_rme/{r['file_name']}"
+                file_path_pdf = file_path_docx.replace(".docx", ".pdf")
+                
+                # Tombol Download DOCX (Tetap ada)
+                if os.path.exists(file_path_docx):
+                    with open(file_path_docx, "rb") as f:
+                        c3.download_button(f"📂 DOCX", f, file_name=r['file_name'], key=f"dl_{r['id']}")
+                
+                # TAMBAHAN: Tombol Cetak PDF
+                if os.path.exists(file_path_pdf):
+                    with open(file_path_pdf, "rb") as f:
+                        c4.download_button(f"🖨️ CETAK", f, file_name=file_path_pdf.split("/")[-1], mime="application/pdf", key=f"pdf_{r['id']}")
+                else:
+                    # Kalau ternyata PDF belum kebuat, ada tombol darurat buat generate ulang
+                    if c4.button("🔄 PDF", key=f"gen_{r['id']}"):
+                        convert_to_pdf(file_path_docx, "arsip_rme/")
+                        st.rerun()
+    else: 
+        st.info("Belum ada arsip.")
+    db.close()
 
 # =========================================================
 # 8. DASHBOARD JADWAL
@@ -330,6 +360,7 @@ elif menu == "📅 Dashboard Jadwal":
             st.table(df_view[df_view['tanggal'] == cek_tgl])
         db.close()
     except: st.error("Gagal preview.")
+
 
 
 
