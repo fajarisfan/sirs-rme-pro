@@ -221,7 +221,7 @@ elif menu == "📝 Input Form":
                               pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display) 
                               VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                             (u_unit, json.dumps(st.session_state.data_p), "Masuk Antrian", f"HAPUS_RME_{rm_utama}.docx", 
-                             datetime.now().strftime("%H:%M"), u_nama, u_nip, u_it, path_ttd, rm_utama, nama_utama))
+                            jam_skrg = get_now_jakarta().strftime("%H:%M"), u_nama, u_nip, u_it, path_ttd, rm_utama, nama_utama))
                 db.commit()
                 db.close()
                 st.session_state.clear()
@@ -239,17 +239,18 @@ elif menu == "👨‍💻 Workspace IT":
     
     if tasks:
         play_notification()
-        st.warning(f"🔔 Ada {len(tasks)} Permintaan!")
         for t in tasks:
             with st.expander(f"📥 Task: {t[14]} (RM: {t[13]})", expanded=True):
                 p_json = json.loads(t[2])
-                for p in p_json: st.write(f"- {p['nama']} (RM: {p['rm']})")
+                # Ambil alasan dari pasien pertama buat dikirim ke Supabase
+                alasan_pertama = p_json[0]['alasan'] if p_json else "-"
+                
                 can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
                 if st.button(f"Selesaikan {t[0]}", type="primary"):
                     path_it = f"temp/ttd_it_{t[0]}.png"
                     Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
                     
-                    # LOGIKA GENERATE DOCX
+                    # LOGIKA GENERATE DOCX (Tetap sama)
                     doc = DocxTemplate("template_rme.docx")
                     ctx = {'unit': t[1], 'pemohon': t[7], 'nip_user': t[8], 'penerima': it_nama,
                            'ttd_user': InlineImage(doc, t[11], width=Inches(1.2)),
@@ -261,12 +262,24 @@ elif menu == "👨‍💻 Workspace IT":
                     doc.render(ctx)
                     doc.save(f"arsip_rme/{t[4]}")
                     
-                    # LOG KE SUPABASE
-                    supabase.table("arsip_rme").insert({"nama_pasien": t[14], "no_rm": t[13], "it_executor": it_nama, "status": "Selesai"}).execute()
+                    # --- FIX SUPABASE DISINI ---
+                    # Kita sesuaikan dengan kolom di screenshot lu: nama_pasien, no_rm, alasan, status
+                    try:
+                        supabase.table("arsip_rme").insert({
+                            "nama_pasien": str(t[14]), 
+                            "no_rm": str(t[13]), 
+                            "alasan": str(alasan_pertama), # Ngambil dari data pasien
+                            "status": "Selesai"
+                        }).execute()
+                    except Exception as e:
+                        st.error(f"Gagal kirim cloud: {e}")
                     
-                    # UPDATE DB LOKAL
-                    db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (datetime.now().strftime("%H:%M"), t[0]))
+                    # UPDATE DB LOKAL (Gunakan jam Jakarta)
+                    jam_selesai = get_now_jakarta().strftime("%H:%M")
+                    db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (jam_selesai, t[0]))
                     db.commit()
+                    st.success("Berhasil diselesaikan!")
+                    time.sleep(1)
                     st.rerun()
     else: st.info("Belum ada antrian.")
     db.close()
@@ -317,6 +330,7 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
 
 
 
