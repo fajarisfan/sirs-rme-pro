@@ -131,6 +131,14 @@ def get_it_aktif_sekarang():
 # =========================================================
 with st.sidebar:
     st.title("🏥 SIRS RME PRO")
+    # Kode Sementara buat Bersih-bersih
+    if st.button("🔥 HAPUS SEMUA DATA TES"):
+        conn = sqlite3.connect('rme_system.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM rme_tasks") # Menghapus semua baris di tabel antrian
+        conn.commit()
+        conn.close()
+        st.success("Database Bersih! Jangan lupa hapus tombol ini di kodingan ya.")
     if 'is_it_authenticated' not in st.session_state: 
         st.session_state.is_it_authenticated = False
     
@@ -309,6 +317,7 @@ elif menu == "📅 Dashboard Jadwal":
             cek_tgl = st.slider("Lihat jadwal tanggal:", 1, 31, tgl_skrg)
             st.table(df_view[df_view['tanggal'] == cek_tgl])
     except: st.error("Gagal preview.")
+
 
 
 
