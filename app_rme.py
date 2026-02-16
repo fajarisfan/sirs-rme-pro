@@ -194,23 +194,23 @@ elif menu == "📊 Monitor Antrian":
                     bg, lbl = "#FFF4E0", "🟡 Sedang Diproses"
                 else:
                     bg, lbl = "#E5FFEA", "🟢 Selesai"
-
-                st.markdown(f"""
-                <div style="background-color:{bg}; padding:15px; border-radius:10px; border-left: 5px solid #333; margin-bottom:15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05)">
-                    <div style="display:flex; justify-content:space-between">
-                        <small><b>Tiket #{row['id']}</b></small>
-                        <small>{row['waktu_input']}</small>
-                    </div>
-                    <div style="margin:10px 0">
-                        <div style="font-size:16px; font-weight:bold">{row['pasien_display']}</div>
-                        <small>Unit: {row['unit']}</small>
-                    </div>
-                    <div style="border-top:1px solid #ccc; padding-top:5px; font-size:12px">
-                        Petugas: <b>{row['it_executor']}</b>
-                    </div>
-                    <div style="margin-top:10px; text-align:center; font-weight:bold">{lbl}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                    
+      st.markdown(f"""
+      <div style="background-color:{bg}; padding:15px; border-radius:10px; border-left: 5px solid #333; margin-bottom:15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); color: #1a1a1a !important;">
+     <div style="display:flex; justify-content:space-between; color: #444 !important;">
+         <small><b>Tiket #{row['id']}</b></small>
+        <small>{row['waktu_input']}</small>
+    </div>
+    <div style="margin:10px 0">
+        <div style="font-size:18px; font-weight:bold; color: #000 !important;">{row['pasien_display']}</div>
+        <div style="font-size:14px; color: #333 !important;">Unit: {row['unit']}</div>
+    </div>
+    <div style="border-top:1px solid #bbb; padding-top:5px; font-size:13px; color: #444 !important;">
+        Petugas IT: <b>{row['it_executor']}</b>
+    </div>
+    <div style="margin-top:10px; text-align:center; font-weight:bold; font-size:14px; color: #000 !important;">{lbl}</div>
+   </div>
+""", unsafe_allow_html=True)
     else:
         st.info("Belum ada antrian saat ini.")
 
@@ -363,24 +363,36 @@ elif menu == "📂 Arsip Digital":
     st.header("📂 Arsip Hasil Eksekusi")
     db = init_db()
     df_arsip = pd.read_sql_query("SELECT * FROM rme_tasks WHERE status='Selesai' ORDER BY id DESC", db)
+    
     if not df_arsip.empty:
         for _, r in df_arsip.iterrows():
             with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([3,2,1,1])
-                c1.write(f"**{r['pasien_display']}** (RM: {r['rm_utama']})")
-                c2.write(f"IT: {r['it_executor']} | Jam: {r['waktu_selesai']}")
+                c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
+                c1.write(f"**{r['pasien_display']}**")
+                c1.caption(f"No. RM: {r['rm_utama']}")
+                c2.write(f"💻 IT: {r['it_executor']}")
+                c2.caption(f"Selesai Jam: {r['waktu_selesai']}")
                 
-                f_docx = f"arsip_rme/{r['file_name']}"
+                # Nama file dari kolom file_name
+                nama_file_asli = r['file_name'] 
+                f_docx = f"arsip_rme/{nama_file_asli}"
                 f_pdf = f_docx.replace(".docx", ".pdf")
                 
+                # Cek keberadaan file untuk menampilkan tombol
                 if os.path.exists(f_docx):
-                    with open(f_docx, "rb") as f: c3.download_button("📂 DOCX", f, file_name=r['file_name'], key=f"d_{r['id']}")
+                    with open(f_docx, "rb") as f:
+                        c3.download_button("📂 DOCX", f, file_name=nama_file_asli, key=f"d_{r['id']}")
+                else:
+                    c3.warning("Docx ❌")
+
                 if os.path.exists(f_pdf):
-                    with open(f_pdf, "rb") as f: c4.download_button("🖨️ CETAK", f, file_name=f_pdf.split("/")[-1], mime="application/pdf", key=f"p_{r['id']}")
+                    with open(f_pdf, "rb") as f:
+                        c4.download_button("🖨️ PDF", f, file_name=os.path.basename(f_pdf), mime="application/pdf", key=f"p_{r['id']}")
+                else:
+                    c4.warning("PDF ❌")
     else:
         st.info("Arsip belum tersedia.")
     db.close()
-
 # =========================================================
 # 8. DASHBOARD JADWAL
 # =========================================================
@@ -401,4 +413,5 @@ elif menu == "📅 Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
 
