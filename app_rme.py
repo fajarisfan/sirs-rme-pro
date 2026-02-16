@@ -195,7 +195,7 @@ elif menu == "📊 Monitor Antrian":
                 else:
                     bg, lbl = "#E5FFEA", "🟢 Selesai"
                     
-      st.markdown(f"""
+                st.markdown(f"""
       <div style="background-color:{bg}; padding:15px; border-radius:10px; border-left: 5px solid #333; margin-bottom:15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); color: #1a1a1a !important;">
      <div style="display:flex; justify-content:space-between; color: #444 !important;">
          <small><b>Tiket #{row['id']}</b></small>
@@ -413,5 +413,6 @@ elif menu == "📅 Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
 
 
