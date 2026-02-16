@@ -25,7 +25,7 @@ st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="üè
 
 # MAPPING DATA PETUGAS IT (NIP & WA)
 MAPPING_IT_DETAIL = {
-    "Isfan":  {"nip": "199709302025211069", "wa": "628123456789"},
+    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077"},
     "Teguh":  {"nip": "199901162025211080", "wa": "628991234567"},
     "Jaka":   {"nip": "199605282025211138", "wa": "628121212121"},
     "Hisyam": {"nip": "199308302025211114", "wa": "628131313131"},
@@ -401,3 +401,4 @@ elif menu == "üìÖ Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
