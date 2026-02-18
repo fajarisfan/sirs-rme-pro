@@ -318,45 +318,241 @@ elif menu == "👨‍💻 Workspace IT":
                         # 1. Logic Waktu Indo
                         now = get_now_jakarta()
                         hari_map = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat', 'Saturday': 'Sabtu', 'Sunday': 'Minggu'}
-                        bulan_map = {'January': 'Januari', 'February': 'Februari', 'March': 'Maret', 'April': 'April', 'May': 'Mei', 'June': 'Juni', 'July': 'Juli', 'August': 'Agustus', 'September': 'September', 'October': 'Oktober', 'November': 'November', 'December': 'Desember'}
-                        tgl_indo = f"{now.strftime('%d')} {bulan_map[now.strftime('%B')]} {now.strftime('%Y')}"
-                        hari_tgl = f"{hari_map[now.strftime('%A')]}, {tgl_indo}"
-                        
-                        # 2. Mapping NIP
-                        it_info = MAPPING_IT_DETAIL.get(it_nama, {"nip": "NIP. ..........."})
-                        
-                        # 3. Render Docx
-                        doc = DocxTemplate("template_rme.docx")
-                        path_it = f"temp/ttd_it_{t[0]}.png"
+import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_drawable_canvas import st_canvas
+from docxtpl import DocxTemplate, InlineImage
+from docx.shared import Inches
+import sqlite3, os, json, pandas as pd
+from datetime import datetime, timedelta
+from PIL import Image
+from streamlit_autorefresh import st_autorefresh
+import pdfplumber
+import time
+import pytz 
+import subprocess
+import urllib.parse
+
+# =========================================================
+# 1. CORE CONFIG & FUNCTIONS
+# =========================================================
+st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
+
+MAPPING_IT_DETAIL = {
+    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077"},
+    "Teguh":  {"nip": "199901162025211080", "wa": "628991234567"},
+    "Jaka":   {"nip": "199605282025211138", "wa": "628121212121"},
+    "Hisyam": {"nip": "199308302025211114", "wa": "628131313131"},
+    "Udin":   {"nip": "NIP. .....................", "wa": "628571234567"},
+    "Rey":    {"nip": "NIP. .....................", "wa": "628991112223"},
+    "Ferdi":  {"nip": "NIP. .....................", "wa": "628112223334"}
+}
+LIST_IT = list(MAPPING_IT_DETAIL.keys())
+
+def get_now_jakarta():
+    return datetime.now(pytz.timezone('Asia/Jakarta'))
+
+# --- LOGIC HARI BESAR OTOMATIS ---
+def get_ucapan_hari_besar():
+    now = get_now_jakarta()
+    tgl_bln = now.strftime("%d-%m") # Format: Tanggal-Bulan
+    
+    # Ucapan default
+    ucapan = {"judul": "Selamat Bekerja!", "pesan": "Semoga pelayanan hari ini berjalan lancar.", "warna": "#2e7d32"}
+    
+    # Kalender Hari Besar (Bisa ditambahin sendiri)
+    events = {
+        "01-01": {"judul": "Selamat Tahun Baru 2026!", "pesan": "Semangat baru untuk pelayanan yang lebih baik.", "warna": "#1565c0"},
+        "17-08": {"judul": "Dirgahayu Republik Indonesia!", "pesan": "Merdeka dalam digitalisasi pelayanan kesehatan.", "warna": "#c62828"},
+        "25-12": {"judul": "Selamat Hari Natal!", "pesan": "Damai dan sukacita menyertai kita semua.", "warna": "#2e7d32"},
+    }
+
+    # Logic Khusus Ramadhan & Lebaran 2026 (Estimasi)
+    # Ramadhan 2026 estimasi mulai 18 Feb - 19 Maret
+    start_puasa = datetime(2026, 2, 18).date()
+    end_puasa = datetime(2026, 3, 19).date()
+    
+    if start_puasa <= now.date() <= end_puasa:
+        return {"judul": "Selamat Menjalankan Ibadah Puasa 1447H", "pesan": "Tetap semangat melayani meski sedang berpuasa. Barakkallah!", "warna": "#fb8c00"}
+    
+    if "20-03" <= tgl_bln <= "25-03": # Estimasi Lebaran
+        return {"judul": "Selamat Hari Raya Idul Fitri 1447H", "pesan": "Minal Aidin Wal Faizin, Mohon Maaf Lahir dan Batin.", "warna": "#2e7d32"}
+
+    return events.get(tgl_bln, ucapan)
+
+def init_db():
+    conn = sqlite3.connect('rme_system.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS rme_tasks 
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, unit TEXT, data_pasien TEXT, 
+                  status TEXT, waktu_input TEXT, waktu_selesai TEXT, pemohon TEXT, 
+                  nip_user TEXT, it_executor TEXT, ttd_user_path TEXT, rm_utama TEXT, pasien_display TEXT)''')
+    c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
+    conn.commit()
+    return conn
+
+# =========================================================
+# 2. SIDEBAR
+# =========================================================
+with st.sidebar:
+    st.title("🏥 SIRS RME PRO")
+    if 'is_it_authenticated' not in st.session_state: st.session_state.is_it_authenticated = False
+    menu_pilihan = ["🏠 Dashboard Info", "📊 Monitor Antrian", "📝 Input Form"]
+    if st.session_state.is_it_authenticated:
+        menu_pilihan += ["👨‍💻 Workspace IT", "📂 Arsip Digital", "📅 Dashboard Jadwal"]
+    menu = st.radio("Navigasi:", menu_pilihan)
+    
+    if not st.session_state.is_it_authenticated:
+        with st.expander("🔑 IT Login"):
+            pin = st.text_input("PIN:", type="password")
+            if st.button("Masuk"):
+                if pin == "1234": st.session_state.is_it_authenticated = True; st.rerun()
+
+# =========================================================
+# 3. DASHBOARD INFO (NEW & LUXURY)
+# =========================================================
+if menu == "🏠 Dashboard Info":
+    # Banner Hari Besar Otomatis
+    event = get_ucapan_hari_besar()
+    st.markdown(f"""
+        <div style="background-color:{event['warna']}; padding:20px; border-radius:15px; text-align:center; color:white; margin-bottom:25px; box-shadow: 0px 4px 15px rgba(0,0,0,0.2);">
+            <h1 style="margin:0; font-size:28px;">{event['judul']}</h1>
+            <p style="margin:5px 0 0 0; font-size:18px; opacity:0.9;">{event['pesan']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h2 style='text-align: center;'>🏥 SISTEM RME PRO 2026</h2>", unsafe_allow_html=True)
+    
+    # Statistik Singkat
+    db = init_db()
+    total_antri = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Masuk Antrian'").fetchone()[0]
+    total_selesai = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Selesai'").fetchone()[0]
+    db.close()
+
+    m1, m2 = st.columns(2)
+    m1.metric("📋 Antrian Aktif", f"{total_antri} Berkas")
+    m2.metric("✅ Total Selesai", f"{total_selesai} Kasus")
+    
+    st.divider()
+
+    # --- TUTORIAL USER ---
+    st.subheader("📖 Panduan Penggunaan untuk User/Ruangan")
+    
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("""
+        <div style="background-color:#ffffff; padding:20px; border-radius:10px; border-top:5px solid #ff4b4b; box-shadow: 0px 2px 10px rgba(0,0,0,0.05); min-height:220px;">
+            <h4 style="color:#ff4b4b;">STEP 1: INPUT DATA</h4>
+            <p style="color:gray;">Buka menu <b>📝 Input Form</b>. Masukkan Nama Pasien, No RM (9 digit), dan alasan penghapusan.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div style="background-color:#ffffff; padding:20px; border-radius:10px; border-top:5px solid #ffa421; box-shadow: 0px 2px 10px rgba(0,0,0,0.05); min-height:220px;">
+            <h4 style="color:#ffa421;">STEP 2: TANDA TANGAN</h4>
+            <p style="color:gray;">Pilih <b>Petugas IT</b> yang sedang piket, lalu berikan tanda tangan digital Anda pada kolom putih.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div style="background-color:#ffffff; padding:20px; border-radius:10px; border-top:5px solid #28a745; box-shadow: 0px 2px 10px rgba(0,0,0,0.05); min-height:220px;">
+            <h4 style="color:#28a745;">STEP 3: MONITOR</h4>
+            <p style="color:gray;">Klik <b>Kirim</b>. Pantau status berkas Anda di menu <b>📊 Monitor Antrian</b> secara real-time.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+    st.caption(f"Server Aktif | RSUD Kota Cilegon | {get_now_jakarta().strftime('%A, %d %B %Y')}")
+
+# =========================================================
+# 4. MONITOR ANTRIAN
+# =========================================================
+elif menu == "📊 Monitor Antrian":
+    st_autorefresh(5000)
+    st.header("📊 Monitor Antrian")
+    db = init_db()
+    df = pd.read_sql_query("SELECT * FROM rme_tasks ORDER BY id DESC LIMIT 9", db)
+    db.close()
+    if not df.empty:
+        cols = st.columns(3)
+        for i, row in df.iterrows():
+            with cols[i % 3]:
+                bg = "#ffcccc" if row['status'] == "Masuk Antrian" else "#fff4cc" if row['status'] == "Menunggu" else "#ccffcc"
+                st.markdown(f"""<div style="background-color:{bg}; padding:15px; border-radius:10px; border:2px solid #333; margin-bottom:10px; color:black;">
+                    <small>#{row['id']} | {row['waktu_input']}</small><h3 style="margin:5px 0;">{row['pasien_display']}</h3>
+                    <p style="margin:0;">Unit: {row['unit']}</p><p style="margin:5px 0;">Petugas: <b>{row['it_executor']}</b></p>
+                    <div style="text-align:center; font-weight:bold; border:1px solid #333; border-radius:5px;">{row['status']}</div></div>""", unsafe_allow_html=True)
+
+# =========================================================
+# 5. INPUT FORM
+# =========================================================
+elif menu == "📝 Input Form":
+    st.header("📝 Form Pengajuan")
+    db = init_db()
+    it_on = [row[0] for row in db.execute("SELECT DISTINCT nama FROM jadwal_it WHERE tanggal = ?", (get_now_jakarta().day,)).fetchall()]
+    db.close()
+    
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        u_nama = c1.text_input("Nama Pemohon")
+        u_unit = c2.text_input("Unit/Ruangan")
+        u_nip = c1.text_input("NIP")
+        u_it = c2.selectbox("Kirim ke IT:", it_on if it_on else LIST_IT)
+        st.divider()
+        p_nama = st.text_input("Nama Pasien")
+        p_rm = st.text_input("RM (9 Digit)", max_chars=9)
+        p_alasan = st.text_area("Alasan")
+        st.write("Tanda Tangan Pemohon:")
+        can_u = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=350, key="can_u")
+        
+        if st.button("KIRIM KE IT", type="primary"):
+            if p_nama and len(p_rm) == 9 and can_u.image_data is not None:
+                path_ttd = f"temp/u_{int(time.time())}.png"
+                Image.fromarray(can_u.image_data.astype('uint8')).save(path_ttd)
+                db = init_db()
+                db.execute("INSERT INTO rme_tasks (unit, data_pasien, status, waktu_input, pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (u_unit, json.dumps([{"nama": p_nama, "rm": p_rm, "alasan": p_alasan}]), "Masuk Antrian", get_now_jakarta().strftime("%H:%M"), u_nama, u_nip, u_it, path_ttd, p_rm, p_nama))
+                db.commit(); db.close()
+                st.success("Berhasil dikirim!"); time.sleep(1); st.rerun()
+
+# =========================================================
+# 6. WORKSPACE IT (STRICT FILTER)
+# =========================================================
+elif menu == "👨‍💻 Workspace IT":
+    st_autorefresh(5000)
+    it_nama = st.selectbox("Identitas IT:", LIST_IT)
+    st.header(f"👨‍💻 Tugas: {it_nama}")
+    db = init_db()
+    tasks = db.execute("SELECT * FROM rme_tasks WHERE it_executor = ? AND status IN ('Masuk Antrian', 'Menunggu')", (it_nama,)).fetchall()
+    if tasks:
+        for t in tasks:
+            with st.expander(f"Tiket #{t[0]} - {t[11]}", expanded=True):
+                if t[3] == "Masuk Antrian":
+                    if st.button(f"Terima Tiket {t[0]}"):
+                        db.execute("UPDATE rme_tasks SET status='Menunggu' WHERE id=?", (t[0],))
+                        db.commit(); st.rerun()
+                else:
+                    can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=350, key=f"it_{t[0]}")
+                    if st.button(f"Selesaikan & Cetak #{t[0]}", type="primary"):
+                        path_it = f"temp/it_{t[0]}.png"
                         Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
-                        
+                        doc = DocxTemplate("template_rme.docx")
+                        p_data = json.loads(t[2])[0]
                         ctx = {
-                            'tgl_full': hari_tgl, 'unit': t[1].upper(), 'penerima': it_nama,
-                            'nip_it': it_info['nip'], 'pemohon': t[7], 'nip_user': t[8],
-                            'ttd_user': InlineImage(doc, t[11], width=Inches(1.0)),
-                            'ttd_it': InlineImage(doc, path_it, width=Inches(1.0))
+                            'tgl_full': get_now_jakarta().strftime("%d-%m-%Y"), 'unit': t[1], 'pemohon': t[6], 'penerima': it_nama,
+                            'nip_it': MAPPING_IT_DETAIL[it_nama]['nip'], 'nip_user': t[7],
+                            'ttd_user': InlineImage(doc, t[9], width=Inches(1)), 'ttd_it': InlineImage(doc, path_it, width=Inches(1)),
+                            'no': '1', 'nama': p_data['nama'], 'rm': p_data['rm'], 'alasan': p_data['alasan']
                         }
-                        
-                        p_json = json.loads(t[2])
-                        for i in range(4):
-                            sfx = "" if i==0 else str(i+1)
-                            if i < len(p_json):
-                                ctx.update({f'nama{sfx}': p_json[i]['nama'], f'rm{sfx}': p_json[i]['rm'], f'tgl{sfx}': tgl_indo, f'alasan{sfx}': p_json[i]['alasan']})
-                            else:
-                                ctx.update({f'nama{sfx}': "", f'rm{sfx}': "", f'tgl{sfx}': "", f'alasan{sfx}': ""})
-                        
                         doc.render(ctx)
-                        fn = f"{t[14]}_{t[13]}.docx"
-                        doc.save(f"arsip_rme/{fn}")
-                        convert_to_pdf(f"arsip_rme/{fn}", "arsip_rme/")
-                        
-                        # 4. Update DB
-                        db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (now.strftime("%H:%M"), t[0]))
-                        db.commit()
-                        st.success(f"✅ Tiket #{t[0]} Selesai!")
-                        time.sleep(1); st.rerun()
-    else:
-        st.info("Kopi dulu Mas, antrian lagi kosong!")
+                        fn = f"arsip_rme/{t[11]}_{t[10]}.docx"
+                        doc.save(fn)
+                        db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (get_now_jakarta().strftime("%H:%M"), t[0]))
+                        db.commit(); st.success("Selesai!"); time.sleep(1); st.rerun()
+    else: st.info("Tidak ada tugas.")
     db.close()
 
 # =========================================================
@@ -419,6 +615,7 @@ elif menu == "📅 Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
 
 
 
