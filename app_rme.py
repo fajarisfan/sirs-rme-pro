@@ -279,84 +279,85 @@ elif menu == "📝 Input Form":
             if st.button("Isi Form Baru"):
                 st.session_state.clear(); st.rerun()
 
-# # =========================================================
-# 6. WORKSPACE IT
+# =========================================================
+# 6. WORKSPACE IT (REVISI: FILTER KETAT & PENOMORAN)
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
     st_autorefresh(5000)
     st.header("👨‍💻 Workspace Eksekusi IT")
     
-    # Ambil daftar petugas yang sedang ON sesuai jadwal
-    petugas_on = get_it_aktif_sekarang()
-    options_it = petugas_on if "⚠️" not in petugas_on[0] else LIST_IT
-    
-    # Pemilihan Petugas
-    it_nama = st.selectbox("Konfirmasi Identitas Anda:", options_it)
+    # Identitas IT yang login/pilih
+    it_nama = st.selectbox("Konfirmasi Identitas Anda:", LIST_IT)
     
     db = init_db()
-    # LOGIKA FILTER: Hanya ambil tugas yang it_executor-nya sesuai dengan yang dipilih di selectbox
+    # QUERY: Filter ketat hanya tugas yang 'it_executor' nya ditunjuk ke it_nama
     tasks = db.execute("SELECT * FROM rme_tasks WHERE status IN ('Masuk Antrian', 'Menunggu') AND it_executor = ?", (it_nama,)).fetchall()
     
     if tasks:
         play_notification()
+        st.success(f"Ada {len(tasks)} tugas yang ditujukan untuk Anda, Mas {it_nama}.")
         for t in tasks:
-            with st.expander(f"📥 Tiket #{t[0]} - {t[14]}", expanded=True):
-                st.write(f"Unit: **{t[1]}** | Pemohon: **{t[7]}**")
+            with st.expander(f"📥 Tiket #{t[0]} - Pasien: {t[14]}", expanded=True):
+                st.info(f"Unit: {t[1]} | Pemohon: {t[7]} (NIP: {t[8]})")
                 
-                # JIKA STATUS MASIH BARU -> TERIMA DULU
                 if t[3] == "Masuk Antrian":
-                    if st.button(f"Terima Tugas {t[0]}", key=f"acc_{t[0]}"):
+                    if st.button(f"Terima Tugas #{t[0]}", key=f"acc_{t[0]}"):
                         db.execute("UPDATE rme_tasks SET status='Menunggu' WHERE id=?", (t[0],))
                         db.commit(); st.rerun()
                 
-                # JIKA STATUS SUDAH DITERIMA -> PROSES SELESAI
                 elif t[3] == "Menunggu":
-                    st.warning("⚠️ Sedang diproses... Silakan lengkapi tanda tangan IT untuk menutup tiket.")
+                    st.write("Silakan Tanda Tangan IT untuk Menyelesaikan:")
                     can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
                     
-                    if st.button(f"Selesaikan & Generate Dokumen #{t[0]}", type="primary", key=f"fin_{t[0]}"):
-                        # 1. Logic Waktu Indo
+                    if st.button(f"Selesaikan & Cetak Dokumen #{t[0]}", type="primary", key=f"fin_{t[0]}"):
                         now = get_now_jakarta()
-                        hari_map = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat', 'Saturday': 'Sabtu', 'Sunday': 'Minggu'}
-                        bulan_map = {'January': 'Januari', 'February': 'Februari', 'March': 'Maret', 'April': 'April', 'May': 'Mei', 'June': 'Juni', 'July': 'Juli', 'August': 'Agustus', 'September': 'September', 'October': 'Oktober', 'November': 'November', 'December': 'Desember'}
-                        tgl_indo = f"{now.strftime('%d')} {bulan_map[now.strftime('%B')]} {now.strftime('%Y')}"
-                        hari_tgl = f"{hari_map[now.strftime('%A')]}, {tgl_indo}"
+                        tgl_indo = now.strftime("%d-%m-%Y") # Format simpel buat tabel
                         
-                        # 2. Mapping NIP
-                        it_info = MAPPING_IT_DETAIL.get(it_nama, {"nip": "NIP. ..........."})
+                        # 1. Base Context
+                        it_info = MAPPING_IT_DETAIL.get(it_nama, {"nip": "..................."})
+                        ctx = {
+                            'tgl_full': tgl_indo, 'unit': t[1].upper(), 'penerima': it_nama,
+                            'nip_it': it_info['nip'], 'pemohon': t[7], 'nip_user': t[8],
+                            'ttd_user': InlineImage(doc, t[11], width=Inches(1.0)),
+                            'ttd_it': InlineImage(doc, f"temp/ttd_it_{t[0]}.png", width=Inches(1.0))
+                        }
                         
-                        # 3. Render Docx
-                        doc = DocxTemplate("template_rme.docx")
+                        # Simpan TTD IT
                         path_it = f"temp/ttd_it_{t[0]}.png"
                         Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
                         
-                        ctx = {
-                            'tgl_full': hari_tgl, 'unit': t[1].upper(), 'penerima': it_nama,
-                            'nip_it': it_info['nip'], 'pemohon': t[7], 'nip_user': t[8],
-                            'ttd_user': InlineImage(doc, t[11], width=Inches(1.0)),
-                            'ttd_it': InlineImage(doc, path_it, width=Inches(1.0))
-                        }
-                        
+                        # 2. Logika Penomoran & Data Pasien (Mapping No, Nama, RM, Alasan)
                         p_json = json.loads(t[2])
+                        doc = DocxTemplate("template_rme.docx")
+                        
+                        # Loop Maksimal 4 Pasien sesuai kapasitas form ente
                         for i in range(4):
-                            sfx = "" if i==0 else str(i+1)
+                            idx = i + 1
+                            sfx = "" if i == 0 else str(idx) # nama, nama2, nama3, dst
+                            
                             if i < len(p_json):
-                                ctx.update({f'nama{sfx}': p_json[i]['nama'], f'rm{sfx}': p_json[i]['rm'], f'tgl{sfx}': tgl_indo, f'alasan{sfx}': p_json[i]['alasan']})
+                                ctx.update({
+                                    f'no{sfx}': str(idx), # Ini yang benerin NOMOR di PDF/Word
+                                    f'nama{sfx}': p_json[i]['nama'],
+                                    f'rm{sfx}': p_json[i]['rm'],
+                                    f'tgl{sfx}': tgl_indo,
+                                    f'alasan{sfx}': p_json[i]['alasan']
+                                })
                             else:
-                                ctx.update({f'nama{sfx}': "", f'rm{sfx}': "", f'tgl{sfx}': "", f'alasan{sfx}': ""})
+                                # Kosongkan jika pasien kurang dari 4
+                                ctx.update({f'no{sfx}': "", f'nama{sfx}': "", f'rm{sfx}': "", f'tgl{sfx}': "", f'alasan{sfx}': ""})
                         
+                        # 3. Render & Save
                         doc.render(ctx)
-                        fn = f"{t[14]}_{t[13]}.docx"
-                        doc.save(f"arsip_rme/{fn}")
-                        convert_to_pdf(f"arsip_rme/{fn}", "arsip_rme/")
+                        fn = f"{t[14]}_{t[13]}.docx".replace(" ", "_")
+                        doc_path = f"arsip_rme/{fn}"
+                        doc.save(doc_path)
+                        convert_to_pdf(doc_path, "arsip_rme/")
                         
-                        # 4. Update DB
                         db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (now.strftime("%H:%M"), t[0]))
-                        db.commit()
-                        st.success(f"✅ Tiket #{t[0]} Selesai!")
-                        time.sleep(1); st.rerun()
+                        db.commit(); st.success("Tiket Ditutup!"); time.sleep(1); st.rerun()
     else:
-        st.info("Kopi dulu Mas, antrian lagi kosong!")
+        st.info(f"Belum ada tugas masuk yang ditujukan khusus untuk Anda ({it_nama}).")
     db.close()
 
 # =========================================================
@@ -419,6 +420,7 @@ elif menu == "📅 Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
 
 
 
