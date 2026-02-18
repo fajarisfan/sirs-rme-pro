@@ -44,6 +44,114 @@ def init_db():
     conn.commit()
     return conn
 
+def get_it_aktif_sekarang():
+    try:
+        now = get_now_jakarta()
+        tgl_ini = now.day
+        tgl_kmrn = (now - timedelta(days=1)).day
+        # Waktu saat ini dalam format desimal (misal 21:30 jadi 21.5)
+        waktu_float = now.hour + (now.minute / 60)
+
+        db = init_db()
+        df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
+        db.close()
+
+        petugas_on = []
+        if df.empty: return LIST_IT
+
+        for _, row in df.iterrows():
+            nama_db = row['nama']
+            s = str(row['shift']).upper().strip()
+            tgl_data = int(row['tanggal'])
+
+            # --- LOGIC SHIFT MALAM (M / MM) ---
+            if "M" in s:
+                if (tgl_data == tgl_kmrn and waktu_float < 7.5) or (tgl_data == tgl_ini and waktu_float >= 21):
+                    petugas_on.append(nama_db)
+
+            # --- LOGIC SHIFT PAGI (P / PS) ---
+            elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
+                if 7 <= waktu_float < 16:
+                    petugas_on.append(nama_db)
+
+            # --- LOGIC SHIFT SIANG (S) - ATURAN JAM PULANG BERBEDA ---
+            elif "S" in s and tgl_data == tgl_ini:
+                if "HISYAM" in nama_db.upper():
+                    # Hisyam standby sampai jam 22:00
+                    if 14 <= waktu_float < 22:
+                        petugas_on.append(nama_db)
+                elif "AHMAD HAERUDIN" in nama_db.upper():
+                    # Ahmad Haerudin (Udin) standby sampai jam 21:00
+                    if 14 <= waktu_float < 21:
+                        petugas_on.append(nama_db)
+                else:
+                    # Default petugas lain jam 21:00
+                    if 14 <= waktu_float < 21:
+                        petugas_on.append(nama_db)
+
+        # Mapping Nama PDF ke Nama Panggilan Form
+        mapping_panggilan = {
+            "AHMAD HAERUDIN": "Udin",
+            "M. HISYAM RIZKY": "Hisyam",
+            "TEGUH ADI PRADANA": "Teguh",
+            "JAKA GILANG R": "Jaka",
+            "ISFAN FAJAR ANUGRAH": "Isfan",
+            "SYIHABUDIN AMIEN": "Udin",
+            "REYNOLD MARCELINO": "Rey",
+            "FERDYANSYAH ZAELANI": "Ferdi"
+        }
+
+        final_list = []
+        for p in petugas_on:
+            found = False
+            for nama_panjang, panggilan in mapping_panggilan.items():
+                if nama_panjang in p.upper():
+                    final_list.append(panggilan)
+                    found = True
+                    break
+            if not found: final_list.append(p)
+
+        return sorted(list(set(final_list))) if final_list else ["Tidak ada petugas standby"]
+    except:
+        return LIST_IT
+
+def update_jadwal_dari_pdf(file_pdf):
+    try:
+        with pdfplumber.open(file_pdf) as pdf:
+            all_text = ""
+            for page in pdf.pages:
+                all_text += page.extract_text() + "\n"
+            
+            lines = all_text.split('\n')
+            db = init_db()
+            db.execute("DELETE FROM jadwal_it") # Reset jadwal lama
+            
+            # List nama yang dicari di PDF
+            target_names = [
+                "Teguh Adi Pradana", "Jaka Gilang R", "Ahmad Haerudin", 
+                "Syihabudin Amien", "Isfan Fajar Anugrah", "M. Hisyam Rizky",
+                "Ferdyansyah Zaelani", "Reynold Marcelino"
+            ]
+
+            for line in lines:
+                for target in target_names:
+                    if target.upper() in line.upper():
+                        # Ambil bagian setelah nama (kode shift)
+                        parts = line.split()
+                        # Filter hanya yang merupakan kode shift (P, S, M, L, PS, MM)
+                        shifts = [p for p in parts if p in ['P', 'S', 'M', 'L', 'PS', 'MM']]
+                        
+                        # Simpan ke DB berdasarkan urutan tanggal (1 - 28)
+                        for tgl, shf in enumerate(shifts, 1):
+                            db.execute("INSERT INTO jadwal_it (nama, tanggal, shift) VALUES (?,?,?)",
+                                       (target, tgl, shf))
+            db.commit()
+            db.close()
+            return True
+    except Exception as e:
+        st.error(f"Error Parsing: {str(e)}")
+        return False
+
 def convert_to_pdf(docx_path, output_dir):
     try:
         subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', docx_path, '--outdir', output_dir], check=True)
@@ -282,24 +390,56 @@ elif menu == "📂 Arsip Digital":
                         c4.download_button("🖨️ PDF", f, file_name=f"{fname}.pdf", mime="application/pdf", key=f"p_{r['id']}")
     else:
         st.info("Belum ada arsip selesai.")
-
 # =========================================================
-# 8. DASHBOARD JADWAL
+# 8. DASHBOARD JADWAL (VERSI LENGKAP)
 # =========================================================
 elif menu == "📅 Dashboard Jadwal":
-    st.header("📅 Pengaturan Jadwal IT")
+    st.header("📅 Pengaturan & Monitoring Jadwal IT")
     
-    uploaded_pdf = st.file_uploader("Upload PDF Jadwal", type="pdf")
-    if st.button("🔄 Sync Jadwal dari PDF"):
-        # Logic update_jadwal_dari_pdf disini
-        st.info("Fitur parsing PDF sedang memproses...")
-        # (Tambahkan fungsi update_jadwal_dari_pdf Anda di sini)
+    tab1, tab2 = st.tabs(["📤 Upload & Sync", "📅 Preview Jadwal Hari Ini"])
+    
+    with tab1:
+        st.subheader("Update Master Jadwal (PDF)")
+        st.write("Silahkan upload file 'JADWAL SHIFT SIMRS FEB 2026.pdf' untuk sinkronisasi otomatis.")
+        
+        uploaded_pdf = st.file_uploader("Pilih File PDF", type="pdf", key="pdf_uploader")
+        
+        if st.button("🔄 Proses & Sinkronkan Jadwal", type="primary"):
+            if uploaded_pdf is not None:
+                with st.spinner("Sistem sedang membaca data shift..."):
+                    success = update_jadwal_dari_pdf(uploaded_pdf)
+                    if success:
+                        st.success("✅ Jadwal berhasil diperbarui ke Database!")
+                        time.sleep(1.5)
+                        st.rerun()
+            else:
+                st.error("Silahkan pilih file PDF terlebih dahulu!")
 
-    st.divider()
-    db = init_db()
-    df_v = pd.read_sql_query("SELECT * FROM jadwal_it", db)
-    if not df_v.empty:
-        st.table(df_v[df_v['tanggal'] == get_now_jakarta().day])
-    else:
-        st.warning("Jadwal kosong. Silahkan upload PDF.")
-    db.close()
+    with tab2:
+        now = get_now_jakarta()
+        tgl_skrg = now.day
+        st.subheader(f"Petugas Piket Tanggal: {tgl_skrg} Februari 2026")
+        
+        db = init_db()
+        df_piket = pd.read_sql_query(
+            "SELECT nama as 'Nama Petugas', shift as 'Shift' FROM jadwal_it WHERE tanggal = ?", 
+            db, params=(tgl_skrg,)
+        )
+        db.close()
+        
+        if not df_piket.empty:
+            st.table(df_piket)
+            
+            # Tampilkan siapa yang aktif sekarang berdasarkan jam
+            aktif = get_it_aktif_sekarang()
+            st.markdown(f"""
+                <div style="background-color:#e8f5e9; padding:15px; border-radius:10px; border-left:5px solid #2e7d32;">
+                    <h4 style="margin:0; color:#1b5e20;">🟢 Sedang Standby di Form:</h4>
+                    <p style="font-size:20px; font-weight:bold; margin:5px 0;">{', '.join(aktif)}</p>
+                    <small>*Otomatis filter berdasarkan jam kerja (Udin pulang 21:00, Hisyam 22:00)</small>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("Data jadwal belum tersedia. Silahkan upload PDF di tab sebelah.")
+
+
