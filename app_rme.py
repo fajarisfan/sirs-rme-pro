@@ -7,6 +7,7 @@ import sqlite3, os, json, pandas as pd
 from datetime import datetime, timedelta
 from PIL import Image
 from streamlit_autorefresh import st_autorefresh
+from supabase import create_client
 import pdfplumber
 import time
 import pytz 
@@ -16,256 +17,346 @@ import urllib.parse
 # =========================================================
 # 1. CORE CONFIG & FUNCTIONS
 # =========================================================
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase = create_client(url, key)
+
 st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
 
 # MAPPING DATA PETUGAS IT (NIP & WA)
 MAPPING_IT_DETAIL = {
-    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077", "nama_full": "Isfan Fajar Anugrah, S.Kom"},
-    "Teguh":  {"nip": "199901162025211080", "wa": "628991234567", "nama_full": "Teguh Adi Pradana, A.Md"},
-    "Jaka":   {"nip": "199605282025211138", "wa": "628121212121", "nama_full": "Jaka Gilang R, A.Md"},
-    "Hisyam": {"nip": "199308302025211114", "wa": "628131313131", "nama_full": "M. Hisyam Rizky F, S.Kom"},
-    "Udin":   {"nip": "19880101XXXXXXXX", "wa": "628571234567", "nama_full": "Ahmad Haerudin"},
-    "Rey":    {"nip": "19900202XXXXXXXX", "wa": "628991112223", "nama_full": "Reynold Marcelino"},
-    "Ferdi":  {"nip": "19920303XXXXXXXX", "wa": "628112223334", "nama_full": "Ferdyansyah Zaelani"}
+    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077"},
+    "Teguh":  {"nip": "199901162025211080", "wa": "628991234567"},
+    "Jaka":   {"nip": "199605282025211138", "wa": "628121212121"},
+    "Hisyam": {"nip": "199308302025211114", "wa": "628131313131"},
+    "Udin":   {"nip": "NIP. .....................", "wa": "628571234567"},
+    "Rey":    {"nip": "NIP. .....................", "wa": "628991112223"},
+    "Ferdi":  {"nip": "NIP. .....................", "wa": "628112223334"}
 }
+
 LIST_IT = list(MAPPING_IT_DETAIL.keys())
-
-def get_now_jakarta():
-    return datetime.now(pytz.timezone('Asia/Jakarta'))
-
-def init_db():
-    conn = sqlite3.connect('rme_system.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS rme_tasks 
-                  (id INTEGER PRIMARY KEY AUTOINCREMENT, unit TEXT, data_pasien TEXT, 
-                  status TEXT, waktu_input TEXT, waktu_selesai TEXT, pemohon TEXT, 
-                  nip_user TEXT, it_executor TEXT, ttd_user_path TEXT, rm_utama TEXT, pasien_display TEXT)''')
-    c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
-    conn.commit()
-    return conn
-
-def get_it_aktif_sekarang():
-    try:
-        now = get_now_jakarta()
-        tgl_ini = now.day
-        tgl_kmrn = (now - timedelta(days=1)).day
-        waktu_float = now.hour + (now.minute / 60)
-
-        db = init_db()
-        df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
-        db.close()
-
-        petugas_on = []
-        if df.empty: return ["Admin IT"]
-
-        for _, row in df.iterrows():
-            nama_db = row['nama']
-            s = str(row['shift']).upper().strip()
-            tgl_data = int(row['tanggal'])
-
-            # --- ANTI-SYIHAB LOGIC: NAMA SYIHAB TIDAK BOLEH MUNCUL ---
-            if "SYIHABUDIN" in nama_db.upper():
-                continue
-
-            if "M" in s:
-                if (tgl_data == tgl_kmrn and waktu_float < 7.5) or (tgl_data == tgl_ini and waktu_float >= 21):
-                    petugas_on.append(nama_db)
-            elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
-                if 7 <= waktu_float < 16:
-                    petugas_on.append(nama_db)
-            elif "S" in s and tgl_data == tgl_ini:
-                limit = 22 if "HISYAM" in nama_db.upper() else 21
-                if 14 <= waktu_float < limit:
-                    petugas_on.append(nama_db)
-
-        mapping_panggilan = {
-            "AHMAD HAERUDIN": "Udin", "M. HISYAM RIZKY": "Hisyam",
-            "TEGUH ADI PRADANA": "Teguh", "JAKA GILANG R": "Jaka",
-            "ISFAN FAJAR ANUGRAH": "Isfan", "REYNOLD MARCELINO": "Rey",
-            "FERDYANSYAH ZAELANI": "Ferdi"
-        }
-
-        final_list = []
-        for p in petugas_on:
-            found = False
-            for nama_panjang, panggilan in mapping_panggilan.items():
-                if nama_panjang in p.upper():
-                    final_list.append(panggilan)
-                    found = True
-                    break
-            if not found: final_list.append(p)
-
-        return sorted(list(set(final_list))) if final_list else ["Admin IT"]
-    except:
-        return LIST_IT
-
-def update_jadwal_dari_pdf(file_pdf):
-    try:
-        with pdfplumber.open(file_pdf) as pdf:
-            all_text = ""
-            for page in pdf.pages:
-                all_text += page.extract_text() + "\n"
-            
-            lines = all_text.split('\n')
-            db = init_db()
-            db.execute("DELETE FROM jadwal_it")
-            
-            target_names = [
-                "Teguh Adi Pradana", "Jaka Gilang R", "Ahmad Haerudin", 
-                "Syihabudin Amien", "Isfan Fajar Anugrah", "M. Hisyam Rizky",
-                "Ferdyansyah Zaelani", "Reynold Marcelino"
-            ]
-
-            for line in lines:
-                for target in target_names:
-                    if target.upper() in line.upper():
-                        parts = line.split()
-                        shifts = [p for p in parts if p in ['P', 'S', 'M', 'L', 'PS', 'MM']]
-                        for tgl, shf in enumerate(shifts, 1):
-                            db.execute("INSERT INTO jadwal_it (nama, tanggal, shift) VALUES (?,?,?)", (target, tgl, shf))
-            db.commit(); db.close()
-            return True
-    except:
-        return False
 
 def convert_to_pdf(docx_path, output_dir):
     try:
         subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', docx_path, '--outdir', output_dir], check=True)
         return docx_path.replace(".docx", ".pdf")
-    except:
+    except Exception as e:
+        st.error(f"Gagal konversi PDF: {e}")
         return None
 
-def get_ucapan_hari_besar():
-    now = get_now_jakarta()
-    tgl_bln = now.strftime("%d-%m")
-    ucapan = {"judul": "Selamat Bekerja!", "pesan": "Semoga pelayanan hari ini berjalan lancar.", "warna": "#2e7d32"}
-    events = {
-        "01-01": {"judul": "Selamat Tahun Baru 2026!", "pesan": "Semangat baru!", "warna": "#1565c0"},
-        "17-08": {"judul": "Dirgahayu RI!", "pesan": "Merdeka!", "warna": "#c62828"},
-    }
-    if "18-02" <= tgl_bln <= "19-03":
-        return {"judul": "Selamat Ramadhan 1447H", "pesan": "Tetap semangat melayani.", "warna": "#fb8c00"}
-    return events.get(tgl_bln, ucapan)
+def get_now_jakarta():
+    tz = pytz.timezone('Asia/Jakarta')
+    return datetime.now(tz)
 
 for folder in ["temp", "arsip_rme"]:
     if not os.path.exists(folder): os.makedirs(folder)
 
+def play_notification():
+    audio_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
+    html_code = f'<audio autoplay><source src="{audio_url}" type="audio/mpeg"></audio>'
+    components.html(html_code, height=0)
+
 # =========================================================
-# 2. SIDEBAR NAVIGATION
+# 2. DATABASE & LOGIKA JADWAL
+# =========================================================
+def init_db():
+    conn = sqlite3.connect('rme_system.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS rme_tasks 
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, unit TEXT, data_pasien TEXT, 
+                  status TEXT, file_name TEXT, waktu_input TEXT, waktu_selesai TEXT,
+                  pemohon TEXT, nip_user TEXT, it_executor TEXT, nip_it TEXT, 
+                  ttd_user_path TEXT, ip_address TEXT, rm_utama TEXT, pasien_display TEXT)''')
+    c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
+    conn.commit()
+    return conn
+
+def update_jadwal_dari_pdf(file_pdf):
+    try:
+        with pdfplumber.open(file_pdf) as pdf:
+            table = pdf.pages[0].extract_table()
+            mapping_nama_pdf = {
+                "Teguh Adi Pradana": "Teguh", "Jaka Gilang R": "Jaka",
+                "Ahmad Haerudin": "Udin", "Isfan Fajar Anugrah": "Isfan",
+                "M. Hisyam Rizky": "Hisyam", "Ferdyansyah Zaelani": "Ferdi",
+                "Reynold": "Rey"
+            }
+            data_jadwal = []
+            for row in table:
+                if not row[1]: continue
+                nama_full = str(row[1]).replace('\n', ' ')
+                for key_pdf, nama_singkat in mapping_nama_pdf.items():
+                    if key_pdf.lower() in nama_full.lower():
+                        for tgl in range(1, 32):
+                            col_idx = tgl + 1
+                            if col_idx < len(row) and row[col_idx]:
+                                shift = str(row[col_idx]).replace('\n', '').strip().upper()
+                                data_jadwal.append({"nama": nama_singkat, "tanggal": tgl, "shift": shift})
+            if data_jadwal:
+                db = init_db()
+                pd.DataFrame(data_jadwal).to_sql('jadwal_it', db, if_exists='replace', index=False)
+                db.commit(); db.close()
+                return True
+    except: return False
+    return False
+
+def get_it_aktif_sekarang():
+    try:
+        now = get_now_jakarta()
+        tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
+        db = init_db()
+        df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
+        db.close()
+        petugas_on = []
+        if df.empty: return ["⚠️ Database Kosong"]
+        for _, row in df.iterrows():
+            nama, s, tgl_data = row['nama'], str(row['shift']).upper().strip(), int(row['tanggal'])
+            if "M" in s:
+                if (tgl_data == tgl_kmrn and jam_ini < 7) or (tgl_data == tgl_ini and jam_ini >= 21):
+                    petugas_on.append(nama)
+            elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
+                if 7 <= jam_ini < 16: petugas_on.append(nama)
+            elif s == "S" and tgl_data == tgl_ini:
+                limit = 22 if "HISYAM" in nama.upper() else 21
+                if 14 <= jam_ini < limit: petugas_on.append(nama)
+        return sorted(list(set(petugas_on))) if petugas_on else ["Tidak ada petugas standby"]
+    except: return ["⚠️ Error Jadwal"]
+
+# =========================================================
+# 3. SIDEBAR & NAVIGATION
 # =========================================================
 with st.sidebar:
     st.title("🏥 SIRS RME PRO")
+    if st.button("🔥 HAPUS SEMUA DATA TES"):
+        conn = sqlite3.connect('rme_system.db'); c = conn.cursor()
+        c.execute("DELETE FROM rme_tasks"); conn.commit(); conn.close()
+        st.success("Database Bersih!")
+    
     if 'is_it_authenticated' not in st.session_state: st.session_state.is_it_authenticated = False
     
-    menu_pilihan = ["🏠 Dashboard Info", "📊 Monitor Antrian", "📝 Input Form"]
-    if st.session_state.is_it_authenticated:
-        menu_pilihan += ["👨‍💻 Workspace IT", "📂 Arsip Digital", "📅 Dashboard Jadwal"]
+    menu_umum = ["🏠 Dashboard Info", "📊 Monitor Antrian", "📝 Input Form"]
     
-    menu = st.radio("Navigasi:", menu_pilihan)
-    st.divider()
     if not st.session_state.is_it_authenticated:
-        with st.expander("🔑 IT Login"):
-            if st.text_input("PIN:", type="password") == "1234":
-                if st.button("Masuk"):
-                    st.session_state.is_it_authenticated = True
-                    st.rerun()
+        with st.expander("🔑 IT LOGIN"):
+            pin = st.text_input("PIN Admin IT:", type="password")
+            if st.button("Masuk"):
+                if pin == "1234": st.session_state.is_it_authenticated = True; st.rerun()
+                else: st.error("PIN Salah!")
+        menu = st.radio("Pilih Halaman:", menu_umum)
     else:
-        if st.button("Logout Admin"):
-            st.session_state.is_it_authenticated = False
-            st.rerun()
+        st.success("✅ Mode IT Aktif")
+        menu = st.radio("Pilih Halaman:", menu_umum + ["👨‍💻 Workspace IT", "📂 Arsip Digital", "📅 Dashboard Jadwal"])
+        if st.button("Logout Admin"): st.session_state.is_it_authenticated = False; st.rerun()
 
 # =========================================================
-# 3. DASHBOARD INFO
+# 3.1 DASHBOARD INFO
 # =========================================================
 if menu == "🏠 Dashboard Info":
-    event = get_ucapan_hari_besar()
-    st.markdown(f"""<div style="background-color:{event['warna']}; padding:20px; border-radius:15px; text-align:center; color:white;">
-                    <h1>{event['judul']}</h1><p>{event['pesan']}</p></div>""", unsafe_allow_html=True)
-    db = init_db()
-    c1, c2 = st.columns(2)
-    c1.metric("📋 Antrian Aktif", f"{db.execute('SELECT COUNT(*) FROM rme_tasks WHERE status!= \"Selesai\"').fetchone()[0]} Berkas")
-    c2.metric("✅ Total Selesai", f"{db.execute('SELECT COUNT(*) FROM rme_tasks WHERE status=\"Selesai\"').fetchone()[0]} Kasus")
-    db.close()
-    st.divider()
-    st.subheader("📖 Panduan Penggunaan")
-    st.info("1. Isi Form -> 2. Tanda Tangan -> 3. IT Proses -> 4. Download Arsip")
-
+    st.markdown("""
+        # 🏥 SIRS RME PRO 2026
+        **Digitalisasi Layanan IT untuk Akurasi & Efisiensi RS**
+        
+        ---
+        ### 🎯 Mengapa Sistem Ini Dibuat?
+        Sistem ini adalah wujud dukungan Departemen IT untuk memudahkan rekan-rekan medis dalam proses administrasi pembatalan RME:
+        
+        * **🚀 Sat-Set:** Pengajuan langsung masuk ke sistem monitor IT secara real-time.
+        * **📄 Paperless:** Tidak perlu lagi berkas fisik, dokumen PDF terbit otomatis.
+        * **📲 Notifikasi WA:** Terhubung langsung dengan nomor WhatsApp petugas IT yang sedang piket.
+        * **⚖️ Akurat:** Legalitas terjamin dengan pencatatan NIP dan Waktu yang sistematis.
+        
+        ### 👨‍💻 Pesan IT Support
+        > *"Kami ingin Anda fokus pada pelayanan pasien, biar urusan sistem kami yang mudahkan."*
+        
+        ---
+        **Status Sistem:** ✅ Beroperasi Normal
+    """)
+    st.info("💡 Klik menu **📝 Input Form** untuk mulai mengajukan.")
 # =========================================================
-# 4. MONITOR ANTRIAN
+# 4. MONITOR ANTRIAN (STYLE TIKET)
 # =========================================================
 elif menu == "📊 Monitor Antrian":
     st_autorefresh(5000)
     st.header("📊 Monitor Antrian Real-Time")
     db = init_db()
-    df = pd.read_sql_query("SELECT id, pasien_display, unit, status, waktu_input FROM rme_tasks WHERE status != 'Selesai' ORDER BY id DESC", db)
+    df = pd.read_sql_query("SELECT id, waktu_input, pasien_display, it_executor, status, unit FROM rme_tasks ORDER BY id DESC LIMIT 9", db)
     db.close()
+
     if not df.empty:
-        st.table(df)
+        cols = st.columns(3)
+        for index, row in df.iterrows():
+            with cols[index % 3]:
+                # Logika Warna & Label
+                if row['status'] == "Masuk Antrian":
+                    bg, lbl = "#FFE5E5", "🔴 Menunggu IT"
+                elif row['status'] == "Menunggu":
+                    bg, lbl = "#FFF4E0", "🟡 Sedang Diproses"
+                else:
+                    bg, lbl = "#E5FFEA", "🟢 Selesai"
+                    
+                st.markdown(f"""
+<div style="background-color:{bg}; padding:15px; border-radius:10px; border-left: 5px solid #333; margin-bottom:15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); color: #000000 !important;">
+    <div style="display:flex; justify-content:space-between; color: #000000 !important;">
+        <small style="color: #000000 !important;"><b>Tiket #{row['id']}</b></small>
+        <small style="color: #000000 !important;">{row['waktu_input']}</small>
+    </div>
+    <div style="margin:10px 0; color: #000000 !important;">
+        <div style="font-size:18px; font-weight:bold; color: #000000 !important;">{row['pasien_display']}</div>
+        <div style="font-size:14px; color: #000000 !important;">Unit: {row['unit']}</div>
+    </div>
+    <div style="border-top:1px solid #999; padding-top:5px; font-size:13px; color: #000000 !important;">
+        Petugas IT: <b style="color: #000000 !important;">{row['it_executor']}</b>
+    </div>
+    <div style="margin-top:10px; text-align:center; font-weight:bold; font-size:14px; color: #000000 !important;">{lbl}</div>
+</div>
+""", unsafe_allow_html=True)
     else:
-        st.info("Tidak ada antrian aktif.")
+        st.info("Belum ada antrian saat ini.")
 
 # =========================================================
 # 5. INPUT FORM
 # =========================================================
 elif menu == "📝 Input Form":
-    st.header("📝 Form Pengajuan Penghapusan RME")
-    it_on = get_it_aktif_sekarang()
-    with st.form("input_form"):
-        c1, c2 = st.columns(2)
-        u_nama = c1.text_input("Nama Pemohon")
-        u_unit = c2.text_input("Unit/Ruangan")
-        u_nip = c1.text_input("NIP/NIK")
-        u_it = c2.selectbox("Kirim ke Petugas IT:", it_on)
-        p_nama = st.text_input("Nama Pasien")
-        p_rm = st.text_input("Nomor Rekam Medis (9 Digit)", max_chars=9)
-        p_alasan = st.text_area("Alasan Penghapusan")
-        st.write("Tanda Tangan Pemohon:")
-        canvas = st_canvas(stroke_width=3, background_color="#fff", height=150, width=400, key="can_u")
-        if st.form_submit_button("🚀 KIRIM KE IT", use_container_width=True):
-            if p_nama and len(p_rm) == 9 and canvas.image_data is not None:
-                path_ttd = f"temp/u_{int(time.time())}.png"
-                Image.fromarray(canvas.image_data.astype('uint8')).save(path_ttd)
-                db = init_db()
-                db.execute("INSERT INTO rme_tasks (unit, data_pasien, status, waktu_input, pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                           (u_unit, json.dumps([{"nama": p_nama, "alasan": p_alasan}]), "Masuk Antrian", get_now_jakarta().strftime("%H:%M"), u_nama, u_nip, u_it, path_ttd, p_rm, p_nama))
-                db.commit(); db.close()
-                st.success("Terkirim!"); time.sleep(1); st.rerun()
+    st.header("📝 Form Penghapusan RME")
+    if 'step' not in st.session_state: st.session_state.step = 1
+    if 'data_p' not in st.session_state: st.session_state.data_p = []
+    
+    petugas_ready = get_it_aktif_sekarang()
 
-# =========================================================
+    with st.expander("👤 Identitas Pemohon", expanded=True):
+        c1, c2 = st.columns(2)
+        u_nama, u_unit = c1.text_input("Nama Pemohon"), c2.text_input("Unit/Ruangan")
+        u_nip = c1.text_input("NIP Pemohon")
+        u_it = c2.selectbox("Kirim ke Petugas IT Piket:", petugas_ready if "⚠️" not in petugas_ready[0] else LIST_IT)
+
+    if st.session_state.step == 1:
+        st.session_state.jml = st.number_input("Jumlah Pasien", 1, 4, 1)
+
+    if st.session_state.step <= st.session_state.get('jml', 1):
+        s = st.session_state.step
+        with st.container(border=True):
+            st.subheader(f"📍 Data Pasien ke-{s}")
+            p_nama = st.text_input(f"Nama Pasien {s}", key=f"nm_{s}")
+            p_rm = st.text_input(f"No. RM {s}", max_chars=9, key=f"rm_{s}")
+            p_als = st.text_area(f"Alasan {s}", key=f"al_{s}")
+            if st.button("Simpan & Lanjut ➡️", key=f"btn_{s}"):
+                if len(p_rm) == 9 and p_nama:
+                    st.session_state.data_p.append({"nama": p_nama, "rm": p_rm, "alasan": p_als})
+                    st.session_state.step += 1; st.rerun()
+                else: st.error("Data Belum Lengkap!")
+    else:
+        st.success("✅ Data Lengkap. Silahkan Tanda Tangan:")
+        canvas = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key="can_u")
+        
+        if st.button("🚀 KIRIM KE IT", type="primary"):
+            if canvas.image_data is not None and u_nama and u_nip:
+                jam_sekarang_wib = get_now_jakarta().strftime("%H:%M")
+                path_ttd = f"temp/ttd_u_{datetime.now().strftime('%H%M%S')}.png"
+                Image.fromarray(canvas.image_data.astype('uint8')).save(path_ttd)
+                
+                rm_utama = st.session_state.data_p[0]['rm']
+                nama_utama = st.session_state.data_p[0]['nama']
+                
+                db = init_db()
+                db.execute('''INSERT INTO rme_tasks (unit, data_pasien, status, file_name, waktu_input, 
+                              pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display) 
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                            (u_unit, json.dumps(st.session_state.data_p), "Masuk Antrian", f"HAPUS_RME_{rm_utama}.docx", 
+                             jam_sekarang_wib, u_nama, u_nip, u_it, path_ttd, rm_utama, nama_utama))
+                db.commit(); db.close()
+
+                # LOGIKA WA OTOMATIS
+                it_info = MAPPING_IT_DETAIL.get(u_it, {"wa": "628123456789"})
+                pesan = f"Halo Mas {u_it}, saya {u_nama} dari {u_unit} baru saja mengirim pengajuan RME untuk pasien {nama_utama}. Mohon dibantu proses ya. Terima kasih!"
+                st.session_state.url_wa = f"https://wa.me/{it_info['wa']}?text={urllib.parse.quote(pesan)}"
+                st.session_state.form_done = True
+                st.rerun()
+            else: st.error("Mohon tanda tangan pemohon!")
+
+        if st.session_state.get('form_done'):
+            st.success("✅ Pengajuan Berhasil Terkirim ke Sistem Monitor IT!")
+            st.link_button("📲 HUBUNGI IT VIA WHATSAPP", st.session_state.url_wa)
+            if st.button("Isi Form Baru"):
+                st.session_state.clear(); st.rerun()
+
+# # =========================================================
 # 6. WORKSPACE IT
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
-    it_nama = st.selectbox("Identitas IT Anda:", LIST_IT)
-    st.header(f"👨‍💻 Workspace: {it_nama}")
+    st_autorefresh(5000)
+    st.header("👨‍💻 Workspace Eksekusi IT")
+    
+    # Ambil daftar petugas yang sedang ON sesuai jadwal
+    petugas_on = get_it_aktif_sekarang()
+    options_it = petugas_on if "⚠️" not in petugas_on[0] else LIST_IT
+    
+    # Pemilihan Petugas
+    it_nama = st.selectbox("Konfirmasi Identitas Anda:", options_it)
+    
     db = init_db()
-    tasks = db.execute("SELECT * FROM rme_tasks WHERE it_executor = ? AND status != 'Selesai'", (it_nama,)).fetchall()
+    # LOGIKA FILTER: Hanya ambil tugas yang it_executor-nya sesuai dengan yang dipilih di selectbox
+    tasks = db.execute("SELECT * FROM rme_tasks WHERE status IN ('Masuk Antrian', 'Menunggu') AND it_executor = ?", (it_nama,)).fetchall()
+    
     if tasks:
+        play_notification()
         for t in tasks:
-            with st.expander(f"Tiket #{t[0]} - {t[11]}"):
+            with st.expander(f"📥 Tiket #{t[0]} - {t[14]}", expanded=True):
+                st.write(f"Unit: **{t[1]}** | Pemohon: **{t[7]}**")
+                
+                # JIKA STATUS MASIH BARU -> TERIMA DULU
                 if t[3] == "Masuk Antrian":
-                    if st.button(f"Terima Tiket #{t[0]}"):
-                        db.execute("UPDATE rme_tasks SET status='Proses' WHERE id=?", (t[0],))
+                    if st.button(f"Terima Tugas {t[0]}", key=f"acc_{t[0]}"):
+                        db.execute("UPDATE rme_tasks SET status='Menunggu' WHERE id=?", (t[0],))
                         db.commit(); st.rerun()
-                else:
-                    st.write("Tanda Tangan IT:")
-                    can_it = st_canvas(stroke_width=3, background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
-                    if st.button(f"Selesaikan & Cetak #{t[0]}", type="primary"):
-                        path_it = f"temp/it_{t[0]}.png"
+                
+                # JIKA STATUS SUDAH DITERIMA -> PROSES SELESAI
+                elif t[3] == "Menunggu":
+                    st.warning("⚠️ Sedang diproses... Silakan lengkapi tanda tangan IT untuk menutup tiket.")
+                    can_it = st_canvas(stroke_width=3, stroke_color="#000", background_color="#fff", height=150, width=400, key=f"it_{t[0]}")
+                    
+                    if st.button(f"Selesaikan & Generate Dokumen #{t[0]}", type="primary", key=f"fin_{t[0]}"):
+                        # 1. Logic Waktu Indo
+                        now = get_now_jakarta()
+                        hari_map = {'Monday': 'Senin', 'Tuesday': 'Selasa', 'Wednesday': 'Rabu', 'Thursday': 'Kamis', 'Friday': 'Jumat', 'Saturday': 'Sabtu', 'Sunday': 'Minggu'}
+                        bulan_map = {'January': 'Januari', 'February': 'Februari', 'March': 'Maret', 'April': 'April', 'May': 'Mei', 'June': 'Juni', 'July': 'Juli', 'August': 'Agustus', 'September': 'September', 'October': 'Oktober', 'November': 'November', 'December': 'Desember'}
+                        tgl_indo = f"{now.strftime('%d')} {bulan_map[now.strftime('%B')]} {now.strftime('%Y')}"
+                        hari_tgl = f"{hari_map[now.strftime('%A')]}, {tgl_indo}"
+                        
+                        # 2. Mapping NIP
+                        it_info = MAPPING_IT_DETAIL.get(it_nama, {"nip": "NIP. ..........."})
+                        
+                        # 3. Render Docx
+                        doc = DocxTemplate("template_rme.docx")
+                        path_it = f"temp/ttd_it_{t[0]}.png"
                         Image.fromarray(can_it.image_data.astype('uint8')).save(path_it)
-                        try:
-                            doc = DocxTemplate("template_rme.docx")
-                            p_data = json.loads(t[2])[0]
-                            ctx = {'tgl_full': get_now_jakarta().strftime("%d-%m-%Y"), 'unit': t[1], 'pemohon': t[6], 'penerima': it_nama,
-                                   'nip_it': MAPPING_IT_DETAIL[it_nama]['nip'], 'nip_user': t[7],
-                                   'ttd_user': InlineImage(doc, t[9], width=Inches(1.2)), 'ttd_it': InlineImage(doc, path_it, width=Inches(1.2)),
-                                   'no': '1', 'nama': t[11], 'rm': t[10], 'alasan': p_data['alasan']}
-                            doc.render(ctx)
-                            fname = f"{t[11]}_{t[10]}".replace(" ", "_")
-                            docx_p = f"arsip_rme/{fname}.docx"
-                            doc.save(docx_p); convert_to_pdf(docx_p, "arsip_rme")
-                            db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (get_now_jakarta().strftime("%H:%M"), t[0]))
-                            db.commit(); st.success("Selesai!"); st.rerun()
-                        except Exception as e: st.error(f"Gagal: {e}")
+                        
+                        ctx = {
+                            'tgl_full': hari_tgl, 'unit': t[1].upper(), 'penerima': it_nama,
+                            'nip_it': it_info['nip'], 'pemohon': t[7], 'nip_user': t[8],
+                            'ttd_user': InlineImage(doc, t[11], width=Inches(1.0)),
+                            'ttd_it': InlineImage(doc, path_it, width=Inches(1.0))
+                        }
+                        
+                        p_json = json.loads(t[2])
+                        for i in range(4):
+                            sfx = "" if i==0 else str(i+1)
+                            if i < len(p_json):
+                                ctx.update({f'nama{sfx}': p_json[i]['nama'], f'rm{sfx}': p_json[i]['rm'], f'tgl{sfx}': tgl_indo, f'alasan{sfx}': p_json[i]['alasan']})
+                            else:
+                                ctx.update({f'nama{sfx}': "", f'rm{sfx}': "", f'tgl{sfx}': "", f'alasan{sfx}': ""})
+                        
+                        doc.render(ctx)
+                        fn = f"{t[14]}_{t[13]}.docx"
+                        doc.save(f"arsip_rme/{fn}")
+                        convert_to_pdf(f"arsip_rme/{fn}", "arsip_rme/")
+                        
+                        # 4. Update DB
+                        db.execute("UPDATE rme_tasks SET status='Selesai', waktu_selesai=? WHERE id=?", (now.strftime("%H:%M"), t[0]))
+                        db.commit()
+                        st.success(f"✅ Tiket #{t[0]} Selesai!")
+                        time.sleep(1); st.rerun()
+    else:
+        st.info("Kopi dulu Mas, antrian lagi kosong!")
     db.close()
 
 # =========================================================
@@ -276,34 +367,59 @@ elif menu == "📂 Arsip Digital":
     db = init_db()
     df_arsip = pd.read_sql_query("SELECT * FROM rme_tasks WHERE status='Selesai' ORDER BY id DESC", db)
     db.close()
+    
     if not df_arsip.empty:
         for _, r in df_arsip.iterrows():
             with st.container(border=True):
-                c1, c2, c3 = st.columns([3, 2, 2])
-                c1.write(f"**{r['pasien_display']}** ({r['rm_utama']})")
+                c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
+                c1.markdown(f"<b style='color:white;'>{r['pasien_display']}</b>", unsafe_allow_html=True)
+                c1.caption(f"No. RM: {r['rm_utama']}")
+                
                 c2.write(f"💻 IT: {r['it_executor']}")
-                fname = f"{r['pasien_display']}_{r['rm_utama']}".replace(" ", "_")
-                if os.path.exists(f"arsip_rme/{fname}.pdf"):
-                    with open(f"arsip_rme/{fname}.pdf", "rb") as f:
-                        c3.download_button("🖨️ PDF", f, file_name=f"{fname}.pdf", mime="application/pdf", key=f"p_{r['id']}")
+                c2.caption(f"Selesai Jam: {r['waktu_selesai']}")
+                
+                # PERBAIKAN LOGIKA NAMA FILE (Sesuaikan dengan format di Workspace IT)
+                # Di workspace lu bikin: {pasien_display}_{rm_utama}.docx
+                nama_file_fix = f"{r['pasien_display']}_{r['rm_utama']}.docx"
+                f_docx = f"arsip_rme/{nama_file_fix}"
+                f_pdf = f_docx.replace(".docx", ".pdf")
+                
+                # Cek keberadaan file
+                if os.path.exists(f_docx):
+                    with open(f_docx, "rb") as f:
+                        c3.download_button("📂 DOCX", f, file_name=nama_file_fix, key=f"d_{r['id']}")
+                else:
+                    c3.error("Docx ❌")
 
+                if os.path.exists(f_pdf):
+                    with open(f_pdf, "rb") as f:
+                        c4.download_button("🖨️ PDF", f, file_name=nama_file_fix.replace(".docx", ".pdf"), mime="application/pdf", key=f"p_{r['id']}")
+                else:
+                    c4.error("PDF ❌")
+    else:
+        st.info("Arsip belum tersedia.")
+    db.close()
 # =========================================================
 # 8. DASHBOARD JADWAL
 # =========================================================
 elif menu == "📅 Dashboard Jadwal":
-    st.header("📅 Pengaturan & Monitoring Jadwal IT")
-    tab1, tab2 = st.tabs(["📤 Upload & Sync", "📅 Preview Jadwal Hari Ini"])
-    with tab1:
-        uploaded_pdf = st.file_uploader("Pilih File PDF", type="pdf")
-        if st.button("🔄 Sinkronkan Jadwal"):
-            if uploaded_pdf and update_jadwal_dari_pdf(uploaded_pdf):
-                st.success("✅ Jadwal Berhasil Sinkron!"); time.sleep(1); st.rerun()
-    with tab2:
-        now = get_now_jakarta()
-        db = init_db()
-        df_piket = pd.read_sql_query("SELECT nama, shift FROM jadwal_it WHERE tanggal = ?", db, params=(now.day,))
-        db.close()
-        # FILTER ANTI-SYIHAB DI PREVIEW JADWAL
-        df_piket = df_piket[~df_piket['nama'].str.contains("Syihabudin", case=False)]
-        st.table(df_piket)
-        st.write(f"🟢 **Sedang Standby:** {', '.join(get_it_aktif_sekarang())}")
+    st.header("📅 Pengaturan Jadwal IT")
+    with st.container(border=True):
+        pdf_file = st.file_uploader("Upload PDF Jadwal Baru", type="pdf")
+        if st.button("🔄 Update Database Jadwal"):
+            if pdf_file and update_jadwal_dari_pdf(pdf_file):
+                st.success("✅ Database Jadwal Berhasil Diperbarui!"); time.sleep(1); st.rerun()
+            else: st.error("Format PDF tidak sesuai atau Gagal proses.")
+    
+    st.divider()
+    db = init_db()
+    df_v = pd.read_sql_query("SELECT * FROM jadwal_it ORDER BY tanggal ASC", db)
+    if not df_v.empty:
+        t_skrg = get_now_jakarta().day
+        t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
+        st.table(df_v[df_v['tanggal'] == t_pilih])
+    db.close()
+
+
+
+
