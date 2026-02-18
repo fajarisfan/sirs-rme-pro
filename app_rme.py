@@ -278,6 +278,7 @@ elif menu == "📝 Input Form":
             st.link_button("📲 HUBUNGI IT VIA WHATSAPP", st.session_state.url_wa)
             if st.button("Isi Form Baru"):
                 st.session_state.clear(); st.rerun()
+                
 # =========================================================
 # 6. WORKSPACE IT (REVISI AUTO-FILTER KETAT)
 # =========================================================
@@ -390,6 +391,7 @@ elif menu == "📅 Dashboard Jadwal":
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         st.table(df_v[df_v['tanggal'] == t_pilih])
     db.close()
+
 
 
 
