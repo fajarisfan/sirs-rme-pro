@@ -15,19 +15,14 @@ import subprocess
 import urllib.parse
 import calendar
 from datetime import date
+import shutil
+import zipfile
+from PyPDF2 import PdfMerger
 
 # =========================================================
-# 0. FUNGSI UCAPAN HARI BESAR OTOMATIS DENGAN RAMADHAN
+# 0. FUNGSI UCAPAN HARI BESAR
 # =========================================================
 def get_ramadhan_dates(tahun_masehi=2026):
-    """
-    Mendapatkan perkiraan tanggal Ramadhan dan Idul Fitri
-    Berdasarkan kalender Hijriyah
-    """
-    # Ramadhan 1447 H jatuh sekitar Maret-April 2026
-    # Awal Ramadhan: sekitar 11 Maret 2026
-    # Idul Fitri: sekitar 10 April 2026
-    
     ramadhan_start = date(tahun_masehi, 3, 11)
     ramadhan_end = date(tahun_masehi, 4, 9)
     idul_fitri = date(tahun_masehi, 4, 10)
@@ -39,94 +34,80 @@ def get_ramadhan_dates(tahun_masehi=2026):
     }
 
 def is_ramadhan(tanggal):
-    """
-    Cek apakah tanggal termasuk dalam bulan Ramadhan
-    """
     ramadhan = get_ramadhan_dates(tanggal.year)
     return ramadhan['start'] <= tanggal <= ramadhan['end']
 
 def get_ucapan_spesial():
-    """
-    Mendapatkan ucapan spesial berdasarkan waktu dan kondisi
-    """
     now = get_now_jakarta()
     tanggal = now.date()
     jam = now.hour
     menit = now.minute
     
-    # CEK RAMADHAN
     if is_ramadhan(tanggal):
-        # Waktu berbuka (Maghrib) - sekitar 18:00-18:30 WIB
         if (jam == 18 and menit >= 15) or (jam == 18 and menit <= 30):
             return {
                 'judul': "🌙 Waktu Berbuka Puasa",
-                'deskripsi': "Selamat berbuka puasa untuk rekan-rekan yang menjalankan. Semoga ibadah lancar!",
+                'deskripsi': "Selamat berbuka puasa untuk rekan-rekan yang menjalankan.",
                 'emoji': "🥘",
                 'bg_color': "linear-gradient(90deg, #FF8C00 0%, #FF4500 100%)"
             }
-        # Waktu sahur (03:00 - 04:30)
         elif 3 <= jam < 5:
             return {
                 'judul': "🌙 Sahur Telah Tiba",
-                'deskripsi': "Jangan lupa sahur, biar kuat puasanya! Semoga ibadah lancar.",
+                'deskripsi': "Jangan lupa sahur, biar kuat puasanya!",
                 'emoji': "🍽️",
                 'bg_color': "linear-gradient(90deg, #483D8B 0%, #6A5ACD 100%)"
             }
-        # Pagi - Siang Ramadhan
         elif 5 <= jam < 12:
             return {
                 'judul': "🌙 Selamat Menjalankan Ibadah Puasa",
-                'deskripsi': "Semoga puasa dan pekerjaan diberi kelancaran. Tetap semangat melayani!",
+                'deskripsi': "Semoga puasa dan pekerjaan diberi kelancaran.",
                 'emoji': "💪",
                 'bg_color': "linear-gradient(90deg, #2E8B57 0%, #228B22 100%)"
             }
-        # Sore Ramadhan (menjelang berbuka)
         elif 15 <= jam < 18:
             return {
                 'judul': "🌙 Menjelang Berbuka Puasa",
-                'deskripsi': "Sebentar lagi berbuka, tetap semangat! Jangan lupa siapkan takjil.",
+                'deskripsi': "Sebentar lagi berbuka, tetap semangat!",
                 'emoji': "⏳",
                 'bg_color': "linear-gradient(90deg, #CD853F 0%, #D2691E 100%)"
             }
     
-    # CEK IDUL FITRI
     ramadhan = get_ramadhan_dates(tanggal.year)
     if tanggal == ramadhan['idul_fitri']:
         return {
             'judul': "🕌 Selamat Hari Raya Idul Fitri 1447 H",
-            'deskripsi': "Minal aidin wal faizin, mohon maaf lahir dan batin. Selamat merayakan kemenangan!",
+            'deskripsi': "Minal aidin wal faizin, mohon maaf lahir dan batin.",
             'emoji': "✨",
             'bg_color': "linear-gradient(90deg, #FFD700 0%, #FFA500 100%)"
         }
     
-    # CEK HARI JUMAT
     if now.weekday() == 4:
         if 11 <= jam < 13:
             return {
                 'judul': "🕌 Jumat Berkah",
-                'deskripsi': "Bagi yang Muslim, jangan lupa shalat Jumat. Semoga ibadah diterima Allah SWT.",
+                'deskripsi': "Jangan lupa shalat Jumat. Semoga ibadah diterima.",
                 'emoji': "🤲",
                 'bg_color': "linear-gradient(90deg, #4B0082 0%, #800080 100%)"
             }
         else:
             return {
                 'judul': "🤲 Jumat Berkah",
-                'deskripsi': "Semoga hari Jumat ini membawa keberkahan untuk kita semua dalam melayani pasien.",
+                'deskripsi': "Semoga hari Jumat penuh keberkahan.",
                 'emoji': "🕌",
                 'bg_color': "linear-gradient(90deg, #9370DB 0%, #8A2BE2 100%)"
             }
     
-    # CEK HARI KHUSUS
     hari_besar = {
-        (1, 1): ("🎉 Selamat Tahun Baru Masehi 2026", "Tahun baru, semangat baru dalam pelayanan!"),
-        (5, 1): ("💪 Selamat Hari Buruh", "Apresiasi untuk para pekerja kesehatan yang berdedikasi"),
-        (5, 2): ("☸️ Selamat Hari Raya Waisak", "Semoga kedamaian selalu menyertai"),
-        (6, 1): ("🇮🇩 Selamat Hari Lahir Pancasila", "Bersama Pancasila kita majukan kesehatan Indonesia"),
-        (8, 17): ("🇮🇩 Dirgahayu RI ke-81", "Indonesia maju, kesehatan prima untuk semua"),
+        (1, 1): ("🎉 Selamat Tahun Baru Masehi 2026", "Tahun baru, semangat baru!"),
+        (5, 1): ("💪 Selamat Hari Buruh", "Apresiasi untuk pekerja kesehatan"),
+        (5, 2): ("☸️ Selamat Hari Raya Waisak", "Semoga kedamaian menyertai"),
+        (6, 1): ("🇮🇩 Selamat Hari Lahir Pancasila", "Bersama Pancasila kita maju"),
+        (8, 17): ("🇮🇩 Dirgahayu RI ke-81", "Indonesia maju, kesehatan prima"),
         (10, 5): ("🇮🇩 HUT TNI", "TNI dan Rakyat Bersatu Sehat"),
         (10, 28): ("🇮🇩 Selamat Hari Sumpah Pemuda", "Pemuda kesehatan, inspirasi bangsa"),
-        (11, 10): ("🇮🇩 Selamat Hari Pahlawan", "Teladani semangat pahlawan dalam melayani"),
-        (12, 25): ("🎄 Selamat Hari Raya Natal", "Damai Natal menyertai kita semua")
+        (11, 10): ("🇮🇩 Selamat Hari Pahlawan", "Teladani semangat pahlawan"),
+        (12, 25): ("🎄 Selamat Hari Raya Natal", "Damai Natal menyertai")
     }
     
     if (tanggal.month, tanggal.day) in hari_besar:
@@ -138,11 +119,10 @@ def get_ucapan_spesial():
             'bg_color': "linear-gradient(90deg, #FF69B4 0%, #FF1493 100%)"
         }
     
-    # UCAPAN SEMANGAT KERJA UNTUK ADMIN RS
     if 0 <= jam < 5:
         return {
             'judul': "🌃 Selamat Bertugas Malam",
-            'deskripsi': "Terima kasih untuk dedikasi rekan-rekan yang bertugas malam. Jaga kesehatan!",
+            'deskripsi': "Terima kasih untuk dedikasi rekan-rekan yang bertugas malam.",
             'emoji': "⭐",
             'bg_color': "linear-gradient(90deg, #2C3E50 0%, #34495E 100%)"
         }
@@ -156,43 +136,40 @@ def get_ucapan_spesial():
     elif 7 <= jam < 12:
         return {
             'judul': "☀️ Semangat Pagi, Rekan Hebat!",
-            'deskripsi': "Bersama kita wujudkan pelayanan kesehatan terbaik untuk masyarakat.",
+            'deskripsi': "Bersama kita wujudkan pelayanan kesehatan terbaik.",
             'emoji': "💪",
             'bg_color': "linear-gradient(90deg, #3498DB 0%, #2980B9 100%)"
         }
     elif 12 <= jam < 14:
         return {
             'judul': "🍽️ Waktu Istirahat",
-            'deskripsi': "Jangan lupa istirahat dan makan siang. Tetap jaga stamina!",
+            'deskripsi': "Jangan lupa istirahat dan makan siang.",
             'emoji': "😊",
             'bg_color': "linear-gradient(90deg, #27AE60 0%, #229954 100%)"
         }
     elif 14 <= jam < 17:
         return {
             'judul': "🌆 Selamat Sore, Tetap Produktif!",
-            'deskripsi': "Masih semangat? Ayo kita selesaikan tugas dengan baik.",
+            'deskripsi': "Ayo kita selesaikan tugas dengan baik.",
             'emoji': "📋",
             'bg_color': "linear-gradient(90deg, #E67E22 0%, #D35400 100%)"
         }
     elif 17 <= jam < 19:
         return {
             'judul': "🌇 Selamat Sore Menjelang Malam",
-            'deskripsi': "Terima kasih atas pelayanan hari ini. Selamat beristirahat untuk yang pulang.",
+            'deskripsi': "Terima kasih atas pelayanan hari ini.",
             'emoji': "🌃",
             'bg_color': "linear-gradient(90deg, #8E44AD 0%, #9B59B6 100%)"
         }
     else:
         return {
             'judul': "🌃 Selamat Malam, Terima Kasih",
-            'deskripsi': "Terima kasih atas dedikasi hari ini. Istirahat yang cukup ya!",
+            'deskripsi': "Terima kasih atas dedikasi hari ini. Istirahat yang cukup.",
             'emoji': "🌙",
             'bg_color': "linear-gradient(90deg, #2C3E50 0%, #34495E 100%)"
         }
 
 def tampilkan_banner_ucapan():
-    """
-    Menampilkan banner ucapan di dashboard
-    """
     ucapan = get_ucapan_spesial()
     
     banner_html = f"""
@@ -242,35 +219,245 @@ def tampilkan_banner_ucapan():
     
     st.markdown(banner_html, unsafe_allow_html=True)
 
+# =========================================================
+# 1. CORE CONFIG & FUNCTIONS
+# =========================================================
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase = create_client(url, key)
+
+st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
+
+# MAPPING DATA PETUGAS IT
+MAPPING_IT_DETAIL = {
+    "Rey":    {"nip": "NIP. .....................", "wa": "628991112223"},
+    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077"},
+    "Jaka":   {"nip": "199605282025211138", "wa": "628121212121"},
+    "Teguh":  {"nip": "199901162025211080", "wa": "628991234567"},
+    "Hisyam": {"nip": "199308302025211114", "wa": "628131313131"},
+    "Udin":   {"nip": "NIP. .....................", "wa": "628571234567"},
+    "Ferdi":  {"nip": "NIP. .....................", "wa": "628112223334"}
+}
+
+LIST_IT = ["Rey", "Isfan", "Jaka", "Teguh", "Hisyam", "Udin", "Ferdi"]
+
+def convert_to_pdf(docx_path, output_dir):
+    try:
+        subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', docx_path, '--outdir', output_dir], check=True)
+        return docx_path.replace(".docx", ".pdf")
+    except Exception as e:
+        st.error(f"Gagal konversi PDF: {e}")
+        return None
+
+def get_now_jakarta():
+    tz = pytz.timezone('Asia/Jakarta')
+    return datetime.now(tz)
+
+for folder in ["temp", "arsip_rme", "arsip_bulanan"]:
+    if not os.path.exists(folder): os.makedirs(folder)
+
+def play_notification():
+    audio_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
+    html_code = f'<audio autoplay><source src="{audio_url}" type="audio/mpeg"></audio>'
+    components.html(html_code, height=0)
+
+# =========================================================
+# 2. DATABASE & LOGIKA JADWAL
+# =========================================================
+def init_db():
+    conn = sqlite3.connect('rme_system.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS rme_tasks 
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, unit TEXT, data_pasien TEXT, 
+                  status TEXT, file_name TEXT, waktu_input TEXT, waktu_selesai TEXT,
+                  pemohon TEXT, nip_user TEXT, it_executor TEXT, nip_it TEXT, 
+                  ttd_user_path TEXT, ip_address TEXT, rm_utama TEXT, pasien_display TEXT,
+                  notif_user TEXT DEFAULT 'NO', notif_dibaca TEXT DEFAULT 'NO',
+                  bulan TEXT, tahun TEXT)''')
+    c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS notifikasi_user (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, nip_user TEXT, pesan TEXT, status TEXT, created_at TEXT)")
+    conn.commit()
+    return conn
+
+# =========================================================
+# 3. FUNGSI HAPUS OTOMATIS PER BULAN
+# =========================================================
+def cek_dan_hapus_data_lama():
+    """
+    Cek apakah sudah ganti bulan, jika ya backup dulu lalu hapus data
+    """
+    now = get_now_jakarta()
+    bulan_ini = now.strftime("%Y-%m")
+    
+    # Cek file marker bulan terakhir
+    marker_file = "last_month.txt"
+    bulan_lalu = None
+    if os.path.exists(marker_file):
+        with open(marker_file, 'r') as f:
+            bulan_lalu = f.read().strip()
+    
+    # Jika bulan berbeda, lakukan backup dan hapus
+    if bulan_lalu != bulan_ini:
+        st.warning(f"🔄 Ganti bulan terdeteksi: {bulan_lalu} -> {bulan_ini}")
+        
+        # Backup data bulan lalu ke folder arsip_bulanan
+        if bulan_lalu:
+            db = init_db()
+            data_bulan_lalu = db.execute("""
+                SELECT * FROM rme_tasks 
+                WHERE strftime('%Y-%m', waktu_selesai) = ? 
+                OR (status='Selesai' AND bulan=?)
+            """, (bulan_lalu, bulan_lalu)).fetchall()
+            
+            if data_bulan_lalu:
+                # Buat folder arsip untuk bulan lalu
+                arsip_folder = f"arsip_bulanan/{bulan_lalu}"
+                if not os.path.exists(arsip_folder):
+                    os.makedirs(arsip_folder)
+                
+                # Copy file-file PDF ke folder arsip
+                for task in data_bulan_lalu:
+                    pdf_name = f"{task[14]}_{task[13]}.pdf"
+                    pdf_path = f"arsip_rme/{pdf_name}"
+                    if os.path.exists(pdf_path):
+                        shutil.copy(pdf_path, f"{arsip_folder}/{pdf_name}")
+                
+                # Buat file laporan
+                with open(f"{arsip_folder}/laporan_{bulan_lalu}.txt", 'w') as f:
+                    f.write(f"Laporan Bulan: {bulan_lalu}\n")
+                    f.write(f"Total Tiket: {len(data_bulan_lalu)}\n")
+                    for task in data_bulan_lalu:
+                        f.write(f"- {task[14]} ({task[13]}) selesai {task[6]} oleh {task[9]}\n")
+            
+            db.close()
+            
+            # Hapus data dari database
+            db = init_db()
+            db.execute("DELETE FROM rme_tasks WHERE strftime('%Y-%m', waktu_selesai) = ? OR (status='Selesai' AND bulan=?)", (bulan_lalu, bulan_lalu))
+            db.execute("DELETE FROM notifikasi_user WHERE strftime('%Y-%m', created_at) = ?", (bulan_lalu,))
+            db.commit()
+            db.close()
+            
+            # Hapus file-file di arsip_rme untuk bulan lalu
+            for f in os.listdir("arsip_rme"):
+                if bulan_lalu in f:
+                    os.remove(f"arsip_rme/{f}")
+        
+        # Update marker bulan
+        with open(marker_file, 'w') as f:
+            f.write(bulan_ini)
+        
+        return True
+    return False
+
+# =========================================================
+# 4. FUNGSI NOTIFIKASI USER
+# =========================================================
+def buat_notifikasi_user(task_id, nip_user, pesan):
+    db = init_db()
+    db.execute("""
+        INSERT INTO notifikasi_user (task_id, nip_user, pesan, status, created_at)
+        VALUES (?, ?, ?, 'BARU', ?)
+    """, (task_id, nip_user, pesan, get_now_jakarta().strftime("%Y-%m-%d %H:%M:%S")))
+    db.commit()
+    db.close()
+
+def get_notifikasi_user(nip_user):
+    db = init_db()
+    notif = db.execute("""
+        SELECT * FROM notifikasi_user 
+        WHERE nip_user = ? 
+        ORDER BY created_at DESC 
+        LIMIT 10
+    """, (nip_user,)).fetchall()
+    db.close()
+    return notif
+
+def get_jumlah_notif_belum_dibaca(nip_user):
+    db = init_db()
+    jml = db.execute("""
+        SELECT COUNT(*) FROM notifikasi_user 
+        WHERE nip_user = ? AND status = 'BARU'
+    """, (nip_user,)).fetchone()[0]
+    db.close()
+    return jml
+
+def tandai_notif_dibaca(nip_user):
+    db = init_db()
+    db.execute("""
+        UPDATE notifikasi_user 
+        SET status = 'DIBACA' 
+        WHERE nip_user = ? AND status = 'BARU'
+    """, (nip_user,))
+    db.commit()
+    db.close()
+
+# =========================================================
+# 5. FUNGSI ARSIP BULANAN (MERGE PDF)
+# =========================================================
+def buat_arsip_bulanan(bulan_tahun):
+    """
+    Membuat arsip bulanan: ZIP semua PDF dan merge jadi 1 file
+    """
+    arsip_folder = f"arsip_bulanan/{bulan_tahun}"
+    if not os.path.exists(arsip_folder):
+        os.makedirs(arsip_folder)
+    
+    # Kumpulkan semua PDF bulan ini
+    pdf_files = []
+    for f in os.listdir("arsip_rme"):
+        if bulan_tahun in f and f.endswith('.pdf'):
+            pdf_files.append(f"arsip_rme/{f}")
+    
+    if not pdf_files:
+        return None
+    
+    # 1. Buat file ZIP
+    zip_path = f"{arsip_folder}/arsip_{bulan_tahun}.zip"
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for pdf in pdf_files:
+            zipf.write(pdf, os.path.basename(pdf))
+    
+    # 2. Merge semua PDF jadi 1 file (opsional)
+    merger = PdfMerger()
+    for pdf in sorted(pdf_files):
+        merger.append(pdf)
+    merged_path = f"{arsip_folder}/gabungan_{bulan_tahun}.pdf"
+    merger.write(merged_path)
+    merger.close()
+    
+    return {
+        'zip': zip_path,
+        'merged': merged_path,
+        'total': len(pdf_files)
+    }
+
 def get_status_petugas():
     """
-    Mendapatkan status petugas IT hari ini berdasarkan jadwal PDF
+    Mendapatkan status petugas IT hari ini
     """
     try:
         now = get_now_jakarta()
         tgl_ini, tgl_kmrn, jam_ini = now.day, (now - timedelta(days=1)).day, now.hour
         db = init_db()
         
-        # Cek apakah tabel jadwal ada isinya
         cek = db.execute("SELECT COUNT(*) FROM jadwal_it").fetchone()
         if cek[0] == 0:
             db.close()
             return "⚠️ Database Jadwal Kosong", []
         
-        # Ambil data jadwal
         df = pd.read_sql_query(f"SELECT * FROM jadwal_it WHERE tanggal IN ({tgl_kmrn}, {tgl_ini})", db)
         db.close()
         
         petugas_on = []
         if df.empty: 
-            return "⚠️ Tidak Ada Jadwal", []
+            return f"⚠️ Tidak Ada Jadwal", []
             
         for _, row in df.iterrows():
             nama = row['nama']
             shift = str(row['shift']).upper().strip()
             tgl_data = int(row['tanggal'])
             
-            # Logika shift
             if shift == "PS" and tgl_data == tgl_ini:
                 if 7 <= jam_ini < 16:
                     petugas_on.append(nama)
@@ -292,86 +479,27 @@ def get_status_petugas():
         if petugas_on:
             return "✅ Petugas Tersedia", sorted(list(set(petugas_on)))
         else:
-            return "⏸️ Tidak Ada Petugas Standby", []
+            return f"⏸️ Tidak Ada Petugas Standby", []
             
     except Exception as e:
         return f"⚠️ Error: {str(e)}", []
 
-# =========================================================
-# 1. CORE CONFIG & FUNCTIONS
-# =========================================================
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
-supabase = create_client(url, key)
-
-st.set_page_config(page_title="SIRS RME Pro 2026", layout="wide", page_icon="🏥")
-
-# MAPPING DATA PETUGAS IT (NIP & WA)
-MAPPING_IT_DETAIL = {
-    "Isfan":  {"nip": "199709302025211069", "wa": "6282298180077"},
-    "Teguh":  {"nip": "199901162025211080", "wa": "628991234567"},
-    "Jaka":   {"nip": "199605282025211138", "wa": "628121212121"},
-    "Hisyam": {"nip": "199308302025211114", "wa": "628131313131"},
-    "Udin":   {"nip": "NIP. .....................", "wa": "628571234567"},
-    "Rey":    {"nip": "NIP. .....................", "wa": "628991112223"},
-    "Ferdi":  {"nip": "NIP. .....................", "wa": "628112223334"},
-    "Ciptaningtyas": {"nip": "198208172010012016", "wa": "628123456789"}
-}
-
-LIST_IT = ["Isfan", "Teguh", "Jaka", "Hisyam", "Udin", "Rey", "Ferdi", "Ciptaningtyas"]
-
-def convert_to_pdf(docx_path, output_dir):
-    try:
-        subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', docx_path, '--outdir', output_dir], check=True)
-        return docx_path.replace(".docx", ".pdf")
-    except Exception as e:
-        st.error(f"Gagal konversi PDF: {e}")
-        return None
-
-def get_now_jakarta():
-    tz = pytz.timezone('Asia/Jakarta')
-    return datetime.now(tz)
-
-for folder in ["temp", "arsip_rme"]:
-    if not os.path.exists(folder): os.makedirs(folder)
-
-def play_notification():
-    audio_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
-    html_code = f'<audio autoplay><source src="{audio_url}" type="audio/mpeg"></audio>'
-    components.html(html_code, height=0)
-
-# =========================================================
-# 2. DATABASE & LOGIKA JADWAL
-# =========================================================
-def init_db():
-    conn = sqlite3.connect('rme_system.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS rme_tasks 
-                  (id INTEGER PRIMARY KEY AUTOINCREMENT, unit TEXT, data_pasien TEXT, 
-                  status TEXT, file_name TEXT, waktu_input TEXT, waktu_selesai TEXT,
-                  pemohon TEXT, nip_user TEXT, it_executor TEXT, nip_it TEXT, 
-                  ttd_user_path TEXT, ip_address TEXT, rm_utama TEXT, pasien_display TEXT)''')
-    c.execute("CREATE TABLE IF NOT EXISTS jadwal_it (nama TEXT, tanggal INTEGER, shift TEXT)")
-    conn.commit()
-    return conn
-
 def update_jadwal_dari_pdf(file_pdf):
     """
-    Update jadwal dari PDF dengan format sesuai file
+    Update jadwal dari PDF
     """
     try:
         with pdfplumber.open(file_pdf) as pdf:
             text = pdf.pages[0].extract_text()
             
             mapping_nama = {
-                "Teguh Adi Pradana": "Teguh",
-                "Jaka Gilang R": "Jaka", 
+                "Reynold": "Rey",
+                "Isfan": "Isfan",
+                "Jaka": "Jaka",
+                "Teguh": "Teguh",
+                "Hisyam": "Hisyam",
                 "Ahmad Haerudin": "Udin",
-                "Isfan Fajar Anugrah": "Isfan",
-                "M. Hisyam Rizky": "Hisyam",
-                "Ferdynasyah Zaelani": "Ferdi",
-                "Reynold Marcelino": "Rey",
-                "Ciptaningtyas": "Ciptaningtyas"
+                "Ferdi": "Ferdi"
             }
             
             lines = text.split('\n')
@@ -379,22 +507,28 @@ def update_jadwal_dari_pdf(file_pdf):
             
             for line in lines:
                 for nama_pdf, nama_singkat in mapping_nama.items():
-                    if nama_pdf in line:
-                        parts = line.split()
+                    if nama_pdf.lower() in line.lower():
                         shifts = []
-                        for part in parts:
-                            if any(x in part for x in ['P','S','M','L','PS']):
-                                shifts.append(part)
+                        for char in line:
+                            if char in ['P','S','M','L']:
+                                if char == 'P' and shifts and shifts[-1] == 'P':
+                                    shifts[-1] = 'PS'
+                                else:
+                                    shifts.append(char)
                         
-                        for tgl in range(1, min(32, len(shifts) + 1)):
+                        shifts = shifts[:31]
+                        
+                        for tgl in range(1, 32):
                             if tgl-1 < len(shifts):
-                                shift = shifts[tgl-1].replace('-','').strip()
-                                if shift:
-                                    data_jadwal.append({
-                                        "nama": nama_singkat,
-                                        "tanggal": tgl,
-                                        "shift": shift
-                                    })
+                                shift = shifts[tgl-1]
+                            else:
+                                shift = 'L'
+                            
+                            data_jadwal.append({
+                                "nama": nama_singkat,
+                                "tanggal": tgl,
+                                "shift": shift
+                            })
             
             if data_jadwal:
                 db = init_db()
@@ -413,12 +547,14 @@ def update_jadwal_dari_pdf(file_pdf):
     return False
 
 # =========================================================
-# 3. SIDEBAR & NAVIGATION
+# 6. SIDEBAR & NAVIGATION
 # =========================================================
 with st.sidebar:
     st.title("🏥 SIRS RME PRO")
     
-    # Tampilkan status petugas di sidebar
+    # Cek hapus otomatis setiap kali sidebar di-load
+    cek_dan_hapus_data_lama()
+    
     status_msg, petugas_list = get_status_petugas()
     if "✅" in status_msg:
         st.success(f"🟢 {status_msg}")
@@ -428,7 +564,6 @@ with st.sidebar:
     else:
         st.warning(f"🟡 {status_msg}")
     
-    # Tampilkan ucapan kecil di sidebar
     ucapan = get_ucapan_spesial()
     st.markdown(f"""
     <div style="
@@ -445,19 +580,62 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    if st.button("🔥 HAPUS SEMUA DATA TES"):
-        conn = sqlite3.connect('rme_system.db'); c = conn.cursor()
-        c.execute("DELETE FROM rme_tasks"); conn.commit(); conn.close()
-        st.success("Database Bersih!")
-    
+    # Tombol hapus data tes dipindah ke menu IT
     if 'is_it_authenticated' not in st.session_state: 
         st.session_state.is_it_authenticated = False
         st.session_state.it_logged_in = False
         st.session_state.it_nama = ""
+        st.session_state.user_logged_in = False
+        st.session_state.user_nama = ""
+        st.session_state.user_nip = ""
     
     menu_umum = ["🏠 Dashboard Info", "📊 Monitor Antrian", "📝 Input Form"]
     
     if not st.session_state.is_it_authenticated:
+        # Mode User (bisa login sebagai user)
+        if not st.session_state.user_logged_in:
+            with st.expander("👤 Login User", expanded=False):
+                user_nama = st.text_input("Nama Lengkap")
+                user_nip = st.text_input("NIP")
+                if st.button("Login sebagai User"):
+                    if user_nama and user_nip:
+                        st.session_state.user_logged_in = True
+                        st.session_state.user_nama = user_nama
+                        st.session_state.user_nip = user_nip
+                        st.rerun()
+        else:
+            # Tampilkan notifikasi lonceng untuk user
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.info(f"👋 {st.session_state.user_nama}")
+            with col2:
+                jml_notif = get_jumlah_notif_belum_dibaca(st.session_state.user_nip)
+                if jml_notif > 0:
+                    st.markdown(f"""
+                    <div style="
+                        background-color: #FF4444;
+                        color: white;
+                        border-radius: 50%;
+                        width: 30px;
+                        height: 30px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: bold;
+                        float: right;
+                    ">
+                        {jml_notif}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("🔔")
+            
+            if st.button("Logout User"):
+                st.session_state.user_logged_in = False
+                st.session_state.user_nama = ""
+                st.session_state.user_nip = ""
+                st.rerun()
+        
         with st.expander("🔑 IT LOGIN"):
             pin = st.text_input("PIN Admin IT:", type="password")
             if st.button("Masuk"):
@@ -488,14 +666,14 @@ with st.sidebar:
                 st.session_state.it_nama = ""
                 st.rerun()
         
-        menu = st.radio("Pilih Halaman:", menu_umum + ["👨‍💻 Workspace IT", "📂 Arsip Digital", "📅 Dashboard Jadwal"])
+        menu = st.radio("Pilih Halaman:", menu_umum + ["👨‍💻 Workspace IT", "📂 Arsip Digital", "📦 Arsip Bulanan", "📅 Dashboard Jadwal", "⚙️ Admin Tools"])
         if st.button("Logout Admin"): 
             st.session_state.is_it_authenticated = False
             st.session_state.it_logged_in = False
             st.rerun()
 
 # =========================================================
-# 3.1 DASHBOARD INFO
+# 7. DASHBOARD INFO
 # =========================================================
 if menu == "🏠 Dashboard Info":
     tampilkan_banner_ucapan()
@@ -505,36 +683,55 @@ if menu == "🏠 Dashboard Info":
         **Digitalisasi Layanan IT untuk Akurasi & Efisiensi RS**
         
         ---
-        ### 🎯 Mengapa Sistem Ini Dibuat?
-        Sistem ini adalah wujud dukungan Departemen IT untuk memudahkan rekan-rekan medis:
-        
-        * **🚀 Sat-Set:** Pengajuan langsung masuk ke sistem monitor IT secara real-time
+        ### 🎯 Fitur Unggulan:
+        * **🚀 Satu Klik:** Pengajuan langsung ke IT tujuan
         * **📄 Paperless:** Dokumen PDF terbit otomatis
-        * **📲 Notifikasi WA:** Terhubung dengan WhatsApp petugas IT piket
-        * **⚖️ Akurat:** Legalitas dengan NIP dan Waktu sistematis
-        
-        ### 👨‍💻 Pesan IT Support
-        > *"Kami ingin Anda fokus pada pelayanan pasien, biar urusan sistem kami yang mudahkan."*
-        
-        ---
-        **Status Sistem:** ✅ Beroperasi Normal
+        * **🔔 Notifikasi:** Status tiket di dashboard user
+        * **📦 Arsip Bulanan:** Download semua berita acara sekali klik
+        * **🔄 Auto Clean:** Data lama otomatis terarsip tiap bulan
     """)
     
     st.divider()
-    st.subheader("📋 Status Petugas IT Hari Ini")
-    status_msg, petugas_list = get_status_petugas()
     
-    if petugas_list:
-        st.success(f"✅ Petugas IT Aktif: {', '.join(petugas_list)}")
-        for p in petugas_list:
-            st.info(f"👨‍💻 {p} - Siap melayani")
-    else:
-        st.warning(f"⚠️ {status_msg}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📋 Status Petugas IT Hari Ini")
+        status_msg, petugas_list = get_status_petugas()
+        if petugas_list:
+            st.success(f"✅ Petugas IT Aktif: {', '.join(petugas_list)}")
+        else:
+            st.warning(f"⚠️ {status_msg}")
+    
+    with col2:
+        st.subheader("📦 Arsip Bulan Ini")
+        bulan_ini = get_now_jakarta().strftime("%Y-%m")
+        st.info(f"Bulan: {bulan_ini}")
+        
+        db = init_db()
+        jml_tiket_bulan_ini = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Selesai' AND bulan=?", (bulan_ini,)).fetchone()[0]
+        db.close()
+        st.metric("Tiket Selesai Bulan Ini", jml_tiket_bulan_ini)
+    
+    if st.session_state.user_logged_in:
+        st.divider()
+        st.subheader("🔔 Notifikasi Saya")
+        notif = get_notifikasi_user(st.session_state.user_nip)
+        if notif:
+            for n in notif:
+                if n[4] == 'BARU':
+                    st.success(f"🆕 {n[3]} - {n[5]}")
+                else:
+                    st.info(f"📌 {n[3]} - {n[5]}")
+            if st.button("Tandai Semua Sudah Dibaca"):
+                tandai_notif_dibaca(st.session_state.user_nip)
+                st.rerun()
+        else:
+            st.info("Belum ada notifikasi")
     
     st.info("💡 Klik menu **📝 Input Form** untuk mulai mengajukan.")
 
 # =========================================================
-# 4. MONITOR ANTRIAN
+# 8. MONITOR ANTRIAN
 # =========================================================
 elif menu == "📊 Monitor Antrian":
     ucapan = get_ucapan_spesial()
@@ -598,9 +795,13 @@ elif menu == "📊 Monitor Antrian":
         st.info("Belum ada antrian saat ini.")
 
 # =========================================================
-# 5. INPUT FORM
+# 9. INPUT FORM
 # =========================================================
 elif menu == "📝 Input Form":
+    if not st.session_state.user_logged_in:
+        st.warning("⚠️ Silakan login sebagai user terlebih dahulu di sidebar!")
+        st.stop()
+    
     ucapan = get_ucapan_spesial()
     st.success(f"✨ {ucapan['judul']} - {ucapan['deskripsi']}")
     
@@ -621,9 +822,9 @@ elif menu == "📝 Input Form":
 
     with st.expander("👤 Identitas Pemohon", expanded=True):
         c1, c2 = st.columns(2)
-        u_nama = c1.text_input("Nama Pemohon")
+        u_nama = c1.text_input("Nama Pemohon", value=st.session_state.user_nama)
         u_unit = c2.text_input("Unit/Ruangan")
-        u_nip = c1.text_input("NIP Pemohon")
+        u_nip = c1.text_input("NIP Pemohon", value=st.session_state.user_nip)
         u_it = c2.selectbox("Kirim ke Petugas IT Piket:", petugas_list)
 
     if st.session_state.step == 1:
@@ -656,33 +857,62 @@ elif menu == "📝 Input Form":
                 rm_utama = st.session_state.data_p[0]['rm']
                 nama_utama = st.session_state.data_p[0]['nama']
                 
+                now = get_now_jakarta()
+                bulan = now.strftime("%Y-%m")
+                
                 db = init_db()
                 db.execute('''INSERT INTO rme_tasks 
                               (unit, data_pasien, status, file_name, waktu_input, 
-                               pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display) 
-                              VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                               pemohon, nip_user, it_executor, ttd_user_path, rm_utama, pasien_display,
+                               notif_user, notif_dibaca, bulan, tahun) 
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                             (u_unit, json.dumps(st.session_state.data_p), "Masuk Antrian", f"HAPUS_RME_{rm_utama}.docx", 
-                             jam_sekarang_wib, u_nama, u_nip, u_it, path_ttd, rm_utama, nama_utama))
+                             jam_sekarang_wib, u_nama, u_nip, u_it, path_ttd, rm_utama, nama_utama,
+                             'NO', 'NO', bulan, str(now.year)))
                 db.commit()
                 db.close()
 
+                # WA OTOMATIS KE IT
                 it_info = MAPPING_IT_DETAIL.get(u_it, {"wa": "628123456789"})
-                pesan = f"Halo Mas {u_it}, saya {u_nama} dari {u_unit} baru saja mengirim pengajuan RME untuk pasien {nama_utama}. Mohon dibantu proses ya. Terima kasih!"
-                st.session_state.url_wa = f"https://wa.me/{it_info['wa']}?text={urllib.parse.quote(pesan)}"
+                pesan = f"""🔔 *NOTIFIKASI PENGAJUAN RME*
+
+Halo Mas {u_it}, saya *{u_nama}* dari *{u_unit}* baru saja mengirim pengajuan penghapusan RME.
+
+📋 *Data Pasien:*
+• Nama: {nama_utama}
+• No. RM: {rm_utama}
+• Jumlah Pasien: {len(st.session_state.data_p)}
+
+Status: ✅ Masuk ke antrian Workspace IT Anda.
+
+- SIRS RME PRO 2026 -"""
+                
+                wa_url = f"https://wa.me/{it_info['wa']}?text={urllib.parse.quote(pesan)}"
+                
+                st.markdown(f'''
+                    <meta http-equiv="refresh" content="0; url={wa_url}" />
+                ''', unsafe_allow_html=True)
+                
                 st.session_state.form_done = True
+                st.session_state.wa_sent = True
+                st.session_state.wa_url = wa_url
                 st.rerun()
             else: 
                 st.error("Mohon tanda tangan pemohon!")
 
         if st.session_state.get('form_done'):
-            st.success("✅ Pengajuan Berhasil Terkirim ke Sistem Monitor IT!")
-            st.link_button("📲 HUBUNGI IT VIA WHATSAPP", st.session_state.url_wa)
+            st.success("✅ Pengajuan Berhasil Terkirim!")
+            st.success("📲 WA otomatis telah dikirim ke petugas IT")
+            
+            if st.session_state.get('wa_url'):
+                st.link_button("📱 Klik jika WA tidak terbuka otomatis", st.session_state.wa_url)
+            
             if st.button("Isi Form Baru"):
                 st.session_state.clear()
                 st.rerun()
 
 # =========================================================
-# 6. WORKSPACE IT
+# 10. WORKSPACE IT
 # =========================================================
 elif menu == "👨‍💻 Workspace IT":
     if not st.session_state.it_logged_in:
@@ -797,7 +1027,6 @@ elif menu == "👨‍💻 Workspace IT":
                                         'ttd_it': InlineImage(doc, ttd_path, width=Inches(1.5))
                                     }
                                     
-                                    # Data pasien
                                     data_pasien = json.loads(t[2])
                                     for i, ps in enumerate(data_pasien, 1):
                                         context[f'nama{i}'] = ps.get('nama', '')
@@ -809,17 +1038,21 @@ elif menu == "👨‍💻 Workspace IT":
                                     docx_path = f"arsip_rme/{t[14]}_{t[13]}.docx"
                                     doc.save(docx_path)
                                     
-                                    # Konversi ke PDF
                                     convert_to_pdf(docx_path, "arsip_rme")
+                                    
+                                    # Buat notifikasi untuk user
+                                    pesan_notif = f"✅ Tiket #{t[0]} - {t[14]} telah selesai diproses oleh IT {st.session_state.it_nama} pada {waktu_selesai} WIB."
+                                    buat_notifikasi_user(t[0], t[8], pesan_notif)
                                     
                                     db.execute("""
                                         UPDATE rme_tasks 
-                                        SET status='Selesai', waktu_selesai=?, nip_it=? 
+                                        SET status='Selesai', waktu_selesai=?, nip_it=?, notif_user='YES'
                                         WHERE id=?
                                     """, (waktu_selesai, MAPPING_IT_DETAIL[st.session_state.it_nama]['nip'], t[0]))
                                     db.commit()
                                     
                                     st.success(f"✅ Tiket #{t[0]} Selesai!")
+                                    st.success("📢 Notifikasi telah dikirim ke user")
                                     st.balloons()
                                     time.sleep(2)
                                     st.rerun()
@@ -844,10 +1077,10 @@ elif menu == "👨‍💻 Workspace IT":
     db.close()
 
 # =========================================================
-# 7. ARSIP DIGITAL
+# 11. ARSIP DIGITAL (File Individual)
 # =========================================================
 elif menu == "📂 Arsip Digital":
-    st.header("📂 Arsip Hasil Eksekusi")
+    st.header("📂 Arsip File Individual")
     
     db = init_db()
     filter_it = st.selectbox("Filter berdasarkan IT:", ["Semua"] + LIST_IT)
@@ -891,7 +1124,65 @@ elif menu == "📂 Arsip Digital":
         st.info("📭 Arsip belum tersedia.")
 
 # =========================================================
-# 8. DASHBOARD JADWAL
+# 12. ARSIP BULANAN (Download Semua Sekali Klik)
+# =========================================================
+elif menu == "📦 Arsip Bulanan":
+    st.header("📦 Arsip Bulanan (Download Semua Sekali Klik)")
+    
+    st.info("""
+    Di sini IT bisa mendownload semua arsip dalam satu bulan:
+    - 📁 **ZIP**: Kumpulan semua file PDF
+    - 📚 **Gabungan PDF**: Semua file digabung jadi 1
+    """)
+    
+    # Pilih bulan
+    bulan_list = []
+    for f in os.listdir("arsip_bulanan"):
+        if os.path.isdir(f"arsip_bulanan/{f}"):
+            bulan_list.append(f)
+    
+    if bulan_list:
+        bulan_pilih = st.selectbox("Pilih Bulan:", sorted(bulan_list, reverse=True))
+        
+        arsip_folder = f"arsip_bulanan/{bulan_pilih}"
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            zip_file = f"{arsip_folder}/arsip_{bulan_pilih}.zip"
+            if os.path.exists(zip_file):
+                with open(zip_file, "rb") as f:
+                    st.download_button(
+                        "📥 Download ZIP (Semua File)",
+                        f,
+                        file_name=f"arsip_{bulan_pilih}.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
+        
+        with col2:
+            merged_file = f"{arsip_folder}/gabungan_{bulan_pilih}.pdf"
+            if os.path.exists(merged_file):
+                with open(merged_file, "rb") as f:
+                    st.download_button(
+                        "📥 Download Gabungan PDF (1 File)",
+                        f,
+                        file_name=f"gabungan_{bulan_pilih}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+        
+        # Tampilkan daftar file di bulan tersebut
+        with st.expander("📋 Lihat Daftar File"):
+            files = os.listdir(arsip_folder)
+            for f in sorted(files):
+                if f.endswith('.pdf'):
+                    st.caption(f"• {f}")
+    else:
+        st.info("Belum ada arsip bulanan. Arsip akan otomatis terbentuk saat pergantian bulan.")
+
+# =========================================================
+# 13. DASHBOARD JADWAL
 # =========================================================
 elif menu == "📅 Dashboard Jadwal":
     st.header("📅 Pengaturan Jadwal IT")
@@ -902,12 +1193,16 @@ elif menu == "📅 Dashboard Jadwal":
     with st.container(border=True):
         pdf_file = st.file_uploader("Upload PDF Jadwal Baru", type="pdf")
         if st.button("🔄 Update Database Jadwal"):
-            if pdf_file and update_jadwal_dari_pdf(pdf_file):
-                st.success("✅ Database Jadwal Berhasil Diperbarui!")
-                time.sleep(1)
-                st.rerun()
-            else: 
-                st.error("Format PDF tidak sesuai atau Gagal proses.")
+            if pdf_file:
+                with st.spinner("Memproses PDF..."):
+                    if update_jadwal_dari_pdf(pdf_file):
+                        st.success("✅ Database Jadwal Berhasil Diperbarui!")
+                        time.sleep(1)
+                        st.rerun()
+                    else: 
+                        st.error("Format PDF tidak sesuai atau Gagal proses.")
+            else:
+                st.error("Pilih file PDF terlebih dahulu")
     
     st.divider()
     
@@ -915,21 +1210,97 @@ elif menu == "📅 Dashboard Jadwal":
     df_v = pd.read_sql_query("SELECT * FROM jadwal_it ORDER BY tanggal ASC", db)
     
     if not df_v.empty:
+        st.subheader("📋 Jadwal IT Saat Ini")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Data Jadwal", len(df_v))
+        with col2:
+            st.metric("Jumlah IT", df_v['nama'].nunique())
+        with col3:
+            st.metric("Rentang Tanggal", f"{df_v['tanggal'].min()} - {df_v['tanggal'].max()}")
+        
         t_skrg = get_now_jakarta().day
         t_pilih = st.slider("Cek Petugas Tanggal:", 1, 31, t_skrg)
         
         df_filter = df_v[df_v['tanggal'] == t_pilih].copy()
         
-        tanggal_besar = [(1,1), (25,1), (10,2), (11,3), (10,4), (1,5), (2,5), (17,8), (25,12)]
-        bulan_ini = get_now_jakarta().month
-        if (t_pilih, bulan_ini) in tanggal_besar:
-            st.warning("⚠️ Tanggal ini termasuk hari besar nasional!")
-        
         if not df_filter.empty:
             st.dataframe(df_filter, use_container_width=True)
         else:
-            st.info(f"Tidak ada jadwal untuk tanggal {t_pilih}")
+            st.warning(f"⚠️ Tidak ada jadwal untuk tanggal {t_pilih}")
+            
+        with st.expander("📊 Lihat Semua Data Jadwal"):
+            st.dataframe(df_v, use_container_width=True)
     else:
-        st.info("📅 Belum ada jadwal. Silakan upload PDF jadwal terlebih dahulu.")
+        st.info("📅 Belum ada jadwal. Silakan upload PDF.")
     
     db.close()
+
+# =========================================================
+# 14. ADMIN TOOLS
+# =========================================================
+elif menu == "⚙️ Admin Tools":
+    st.header("⚙️ Tools Admin IT")
+    
+    tab1, tab2 = st.tabs(["🗑️ Hapus Data", "📊 Statistik"])
+    
+    with tab1:
+        st.warning("⚠️ Hati-hati! Fitur ini akan menghapus data.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔥 Hapus SEMUA Data Tes", type="primary"):
+                conn = sqlite3.connect('rme_system.db'); c = conn.cursor()
+                c.execute("DELETE FROM rme_tasks")
+                c.execute("DELETE FROM notifikasi_user")
+                conn.commit(); conn.close()
+                
+                # Hapus file di temp
+                for f in os.listdir("temp"):
+                    os.remove(f"temp/{f}")
+                
+                st.success("✅ Semua data tes berhasil dihapus!")
+                st.rerun()
+        
+        with col2:
+            if st.button("📦 Hapus Tapi Backup Dulu"):
+                # Backup manual sebelum hapus
+                bulan_ini = get_now_jakarta().strftime("%Y-%m")
+                buat_arsip_bulanan(bulan_ini)
+                
+                conn = sqlite3.connect('rme_system.db'); c = conn.cursor()
+                c.execute("DELETE FROM rme_tasks")
+                c.execute("DELETE FROM notifikasi_user")
+                conn.commit(); conn.close()
+                
+                st.success("✅ Data dihapus setelah di-backup!")
+                st.rerun()
+    
+    with tab2:
+        db = init_db()
+        
+        total_tasks = db.execute("SELECT COUNT(*) FROM rme_tasks").fetchone()[0]
+        total_selesai = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Selesai'").fetchone()[0]
+        total_antrian = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Masuk Antrian'").fetchone()[0]
+        total_proses = db.execute("SELECT COUNT(*) FROM rme_tasks WHERE status='Menunggu'").fetchone()[0]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Tiket", total_tasks)
+        col2.metric("Selesai", total_selesai)
+        col3.metric("Antrian", total_antrian)
+        col4.metric("Diproses", total_proses)
+        
+        # Statistik per IT
+        st.subheader("📊 Statistik per IT")
+        df_it = pd.read_sql_query("""
+            SELECT it_executor, 
+                   COUNT(*) as total,
+                   SUM(CASE WHEN status='Selesai' THEN 1 ELSE 0 END) as selesai,
+                   SUM(CASE WHEN status='Masuk Antrian' THEN 1 ELSE 0 END) as antrian
+            FROM rme_tasks 
+            GROUP BY it_executor
+        """, db)
+        st.dataframe(df_it, use_container_width=True)
+        
+        db.close()
