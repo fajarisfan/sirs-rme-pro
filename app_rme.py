@@ -108,8 +108,7 @@ def get_it_aktif_sekarang():
         for _, row in df.iterrows():
             nama, s, tgl_data = row['nama'], str(row['shift']).upper().strip(), int(row['tanggal'])
             if "M" in s:
-                if (tgl_data == tgl_kmrn and jam_ini < 7) or (tgl_data == tgl_ini and jam_ini >= 21):
-                    petugas_on.append(nama)
+                if (tgl_data == tgl_ini and jam_ini < 7) or (tgl_data == tgl_ini and jam_ini >= 21): petugas_on.append(nama)
             elif ("P" in s or "PS" in s) and tgl_data == tgl_ini:
                 if 7 <= jam_ini < 16:
                     petugas_on.append(nama)
@@ -472,3 +471,4 @@ elif menu == "📅 Dashboard Jadwal":
     if not df_v.empty:
         t_pilih = st.slider("Cek Tanggal:", 1, 31, get_now_jakarta().day)
         st.table(df_v[df_v['tanggal'] == t_pilih])
+
