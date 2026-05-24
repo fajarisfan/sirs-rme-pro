@@ -36,11 +36,11 @@ A self-contained web portal where staff submit requests digitally and IT process
 
 ## ✨ Features
 
-- 📋 **Digital Request Form** — No. RM, patient name, deletion reason, digital signature input
+- 📋 **Digital Request Form** — Unit, patient names, No. RM, visit dates, deletion reasons (up to 4 patients per request)
 - 👨‍💻 **IT Shift Selector** — Staff picks the IT officer currently on duty
 - 🔔 **Real-time Notifications** — IT receives instant alert on new request
 - 🎫 **Queue Tracking** — Staff monitors request status via queue number
-- ✍️ **Auto PDF Generation** — Completed form auto-filled and signed, ready to download
+- ✍️ **Auto DOCX Generation** — Auto-fills official Word template with all submitted data including digital signatures — ready to download instantly
 - ✅ **Status Management** — Ticket moves from `Pending → In Progress → Done`
 
 ---
