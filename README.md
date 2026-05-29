@@ -112,4 +112,4 @@ This application does not store or expose any patient data. All form inputs are 
 
 **Isfan Fajar Anugrah**
 - GitHub: [@fajarisfan](https://github.com/fajarisfan)
-- LinkedIn: [isfan-fajar-anugrah](https://linkedin.com/in/isfan-fajar-anugrah)
+- LinkedIn: [isfan-fajar-anugrah](www.linkedin.com/in/isfan-fajar-anugrah-1b4191280)
